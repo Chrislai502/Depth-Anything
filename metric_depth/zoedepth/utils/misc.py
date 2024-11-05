@@ -208,21 +208,28 @@ def compute_metrics(gt, pred, interpolate=True, garg_crop=False, eigen_crop=True
         eigen_crop = config.eigen_crop
         min_depth_eval = config.min_depth_eval
         max_depth_eval = config.max_depth_eval
+        # max_depth_eval = 300
+        print("MAX DEPTH EVAL: ", max_depth_eval)
 
+    # If ground truth and prediction sizes do not match, and interpolation is requested, interpolate prediction
     if gt.shape[-2:] != pred.shape[-2:] and interpolate:
         pred = nn.functional.interpolate(
             pred, gt.shape[-2:], mode='bilinear', align_corners=True)
 
+    # Prepare prediction data for evaluation: remove channel dimension, convert to numpy array, and enforce depth limits
     pred = pred.squeeze().cpu().numpy()
     pred[pred < min_depth_eval] = min_depth_eval
     pred[pred > max_depth_eval] = max_depth_eval
     pred[np.isinf(pred)] = max_depth_eval
     pred[np.isnan(pred)] = min_depth_eval
 
+    # Create a mask to ignore regions in the ground truth outside the min/max depth range
     gt_depth = gt.squeeze().cpu().numpy()
     valid_mask = np.logical_and(
         gt_depth > min_depth_eval, gt_depth < max_depth_eval)
 
+    # Apply cropping if requested by either garg_crop or eigen_crop
+    # print("GARG CROP: ", garg_crop, "EIGEN CROP: ", eigen_crop)
     if garg_crop or eigen_crop:
         gt_height, gt_width = gt_depth.shape
         eval_mask = np.zeros(valid_mask.shape)

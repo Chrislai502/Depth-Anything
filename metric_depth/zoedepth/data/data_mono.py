@@ -49,6 +49,7 @@ from .ibims import get_ibims_loader
 from .sun_rgbd_loader import get_sunrgbd_loader
 from .vkitti import get_vkitti_loader
 from .vkitti2 import get_vkitti2_loader
+from .art import get_art_loader
 
 from .preprocess import CropParams, get_white_border, get_black_border
 
@@ -285,6 +286,9 @@ class DataLoadPreprocess(Dataset):
             self.reader = CachedReader(config.shared_dict)
         else:
             self.reader = ImReader()
+            
+        if config.dataset == 'art':
+            self.crop_bound = config.crop_bound
 
     def postprocess(self, sample):
         return sample
@@ -319,6 +323,20 @@ class DataLoadPreprocess(Dataset):
                     (left_margin, top_margin, left_margin + 1216, top_margin + 352))
                 image = image.crop(
                     (left_margin, top_margin, left_margin + 1216, top_margin + 352))
+
+            if self.config.do_art_crop:
+                print("Cropping Art!")
+                # Get the original dimensions of the image
+                height = image.height
+                width = image.width
+
+                # Define the top and bottom margins for cropping
+                top_margin = int((height - 300) / 2)
+                bottom_margin = height - top_margin  # Keeps a centered crop along the height
+
+                # Perform the crop on both the depth map and the image
+                depth_gt = depth_gt.crop((0, top_margin, width, bottom_margin))
+                image = image.crop((0, top_margin, width, bottom_margin))
 
             # Avoid blank boundaries due to pixel registration?
             # Train images have white border. Test images have black border.
@@ -415,6 +433,21 @@ class DataLoadPreprocess(Dataset):
                 if self.mode == 'online_eval' and has_valid_depth:
                     depth_gt = depth_gt[top_margin:top_margin +
                                         352, left_margin:left_margin + 1216, :]
+
+            if self.config.do_art_crop:
+                height = image.shape[0]
+                width = image.shape[1]
+                
+                # Define the new top and bottom crop margins, reducing by 100 pixels from both the top and the bottom
+                top_crop = self.crop_bound
+                bottom_crop = height - self.crop_bound  # End at height - 100 to remove the last 100 pixels
+                
+                # Apply cropping to the image, keeping the full width
+                image = image[top_crop:bottom_crop, :, :]
+                
+                # If in online evaluation mode and depth_gt is valid, apply the same crop to depth_gt
+                if self.mode == 'online_eval' and has_valid_depth:
+                    depth_gt = depth_gt[top_crop:bottom_crop, :]
 
             if self.mode == 'online_eval':
                 sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth,

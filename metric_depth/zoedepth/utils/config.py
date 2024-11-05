@@ -43,22 +43,49 @@ COMMON_CONFIG = {
     "gpu": None,
     "root": ".",
     "uid": None,
-    "print_losses": False
+    "print_losses": False,
+    "save_images": "./output"
 }
 
 DATASETS_CONFIG = {
+    "art": {
+        "dataset": "art",
+        "min_depth": 0.01,
+        "max_depth": 80.0,
+        "data_path": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
+        "gt_path": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
+        "filenames_file": "./train_test_inputs/art_testing_filenames.txt",
+        "input_height": 710,
+        "input_width": 1018,  # 704
+        "data_path_eval": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
+        "gt_path_eval": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
+        "filenames_file_eval": "./train_test_inputs/art_testing_filenames.txt",
+
+        "min_depth_eval": 1e-3,
+        "max_depth_eval": 80.0,
+
+        "do_random_rotate": False,
+        "degree": 1.0,
+        "crop_bound": 250,
+        "do_art_crop": True,
+        "do_kb_crop": False,
+        "garg_crop": False,
+        "eigen_crop": False,
+        "use_right": False,
+        "shuffle_test": False
+    },
     "kitti": {
         "dataset": "kitti",
         "min_depth": 0.001,
         "max_depth": 80,
-        "data_path": os.path.join(HOME_DIR, "Kitti/raw_data"),
-        "gt_path": os.path.join(HOME_DIR, "Kitti/data_depth_annotated_zoedepth"),
-        "filenames_file": "./train_test_inputs/kitti_eigen_train_files_with_gt.txt",
+        "data_path": os.path.join(HOME_DIR, "Kitti/depth_selection/val_selection_cropped"),
+        "gt_path": os.path.join(HOME_DIR, "Kitti/depth_selection/val_selection_cropped"),
+        "filenames_file": "./train_test_inputs/kitti_testing_filenames.txt",
         "input_height": 352,
         "input_width": 1216,  # 704
-        "data_path_eval": os.path.join(HOME_DIR, "Kitti/raw_data"),
-        "gt_path_eval": os.path.join(HOME_DIR, "Kitti/data_depth_annotated_zoedepth"),
-        "filenames_file_eval": "./train_test_inputs/kitti_eigen_test_files_with_gt.txt",
+        "data_path_eval": os.path.join(HOME_DIR, "Kitti/depth_selection/val_selection_cropped"),
+        "gt_path_eval": os.path.join(HOME_DIR, "Kitti/depth_selection/val_selection_cropped"),
+        "filenames_file_eval": "./train_test_inputs/kitti_testing_filenames.txt",
 
         "min_depth_eval": 1e-3,
         "max_depth_eval": 80,
@@ -375,7 +402,7 @@ def get_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
     check_choices("Model", model_name, ["zoedepth", "zoedepth_nk"])
     check_choices("Mode", mode, ["train", "infer", "eval"])
     if mode == "train":
-        check_choices("Dataset", dataset, ["nyu", "kitti", "mix", None])
+        check_choices("Dataset", dataset, ["nyu", "kitti", "art", "mix", None])
 
     config = flatten({**COMMON_CONFIG, **COMMON_TRAINING_CONFIG})
     config = update_model_config(config, mode, model_name)
