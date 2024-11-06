@@ -32,15 +32,26 @@ from tqdm import tqdm
 from zoedepth.data.data_mono import DepthDataLoader
 from zoedepth.models.builder import build_model
 from zoedepth.utils.arg_utils import parse_unknown
-from zoedepth.utils.config import change_dataset, get_config, ALL_EVAL_DATASETS, ALL_INDOOR, ALL_OUTDOOR
+from zoedepth.utils.config import change_dataset, get_config, get_dataset_config, ALL_EVAL_DATASETS, ALL_INDOOR, ALL_OUTDOOR
 from zoedepth.utils.misc import (RunningAverageDict, colors, compute_metrics,
-                        count_parameters, colorize)
-
+                        count_parameters, colorize, transform_v2)
+from depth_anything_v2.dpt import DepthAnythingV2
 import numpy as np
 import os
 from PIL import Image
 import torch.nn as nn
+from torch.nn import functional as F
+import torchvision.transforms as transforms
 
+model_configs = {
+    'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
+    'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
+    'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]}
+}
+
+encoder = 'vitl' # or 'vits', 'vitb'
+dataset = 'hypersim' # 'hypersim' for indoor model, 'vkitti' for outdoor model
+max_depth = 20 # 20 for indoor model, 80 for outdoor model
 
 def compute_errors(gt, pred):
     """Compute metrics for 'pred' compared to 'gt'
@@ -168,12 +179,11 @@ def compute_errors_2d(img, i, gt, pred, valid_mask=None, save_err_img=False, pat
 
         # Vertical Stack the images
         valid_mask = colorize(valid_mask, 0, 1, cmap='gray')
-        # print("Image Types: ", img.dtype, valid_mask.dtype, abs_rel_img.dtype, delta_img.dtype)
+        print("Image Sizes: ", img.shape, valid_mask.shape, abs_rel_img.shape, delta_img.shape)
         delta_img = np.vstack([img, valid_mask, abs_rel_img, delta_img])
 
         Image.fromarray(delta_img).save(os.path.join(path, f"{i}_delta_img.png"))
-        # print("Image saved to ", os.path.join(path, f"{i}_delta_img.png"))
-        # Image.fromarray(masked_pred_img).save(os.path.join(path, "masked_pred.png"))
+        print(f"SAVED {i}_delta_img.png to {path}")
     return dict(a1=a1, a2=a2, a3=a3, abs_rel=abs_rel, rmse=rmse, log_10=log_10, rmse_log=rmse_log,
                 silog=silog, sq_rel=sq_rel)
 
@@ -187,13 +197,11 @@ def compute_metrics_and_save(img, i, gt, pred, interpolate=True, garg_crop=False
         eigen_crop = config.eigen_crop
         min_depth_eval = config.min_depth_eval
         max_depth_eval = config.max_depth_eval
-        # max_depth_eval = 300
-        # print("MAX DEPTH EVAL: ", max_depth_eval)
+        path = os.path.join(config.save_images, f"{config.dataset}_{config.model_name}")
 
     # If ground truth and prediction sizes do not match, and interpolation is requested, interpolate prediction
     if gt.shape[-2:] != pred.shape[-2:] and interpolate:
-        pred = nn.functional.interpolate(
-            pred, gt.shape[-2:], mode='bilinear', align_corners=True)
+        pred = F.interpolate(pred, gt.shape[-2:], mode='bilinear', align_corners=True)
 
     # Prepare prediction data for evaluation: remove channel dimension, convert to numpy array, and enforce depth limits
     pred = pred.squeeze().cpu().numpy()
@@ -229,7 +237,7 @@ def compute_metrics_and_save(img, i, gt, pred, interpolate=True, garg_crop=False
             eval_mask = np.ones(valid_mask.shape)
     
     # import os
-    path = "/home/art-chris/testing/depth_anything/Depth-Anything/metric_depth/output/temp"
+    # path = "/home/art-chris/testing/depth_anything/Depth-Anything/metric_depth/output/temp"
     # Apply the valid mask to ground truth depth and prediction depth for visualization
     # masked_gt = np.where(valid_mask, gt_depth, np.nan)  # Set invalid areas to NaN for visual clarity
     # masked_pred = np.where(valid_mask, pred, 0)
@@ -284,11 +292,34 @@ def infer(model, images, **kwargs):
 
     return mean_pred
 
+@torch.no_grad()
+def infer_v2(model, images):
+    _, _, height, width = images.size()
+
+    # Resize image
+    images = F.interpolate(
+            images,
+            # size=((height//14 * 14), (width//14 * 14)),
+            size=(714, 1008),
+            mode='nearest',
+        )
+    print("Images shape: ", images.size())
+    # infer Model
+    pred1 = model(images).unsqueeze(1)
+
+    return pred1
 
 @torch.no_grad()
-def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
+def evaluate(model, test_loader, config, model_name, round_vals=True, round_precision=3):
     model.eval()
     metrics = RunningAverageDict()
+
+    # Create save directory if it doesn't exist
+    if "save_images" in config and config.save_images:
+        path = os.path.join(config.save_images, f"{config.dataset}_{model_name}")
+        if not os.path.exists(path):
+            os.makedirs(path)
+
     for i, sample in tqdm(enumerate(test_loader), total=len(test_loader)):
         if 'has_valid_depth' in sample:
             if not sample['has_valid_depth']:
@@ -301,12 +332,17 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
         depth = depth.squeeze().unsqueeze(0).unsqueeze(0)
         focal = sample.get('focal', torch.Tensor(
             [715.0873]).cuda())  # This magic number (focal) is only used for evaluating BTS model
-        pred = infer(model, image, dataset=sample['dataset'][0], focal=focal)
+        
+        if config['model_name'][-2:] == 'v2':
+            print("Using v2 model")
+            # pred = model(image)
+            pred = infer_v2(model, image)
+        else:
+            pred = infer(model, image, dataset=sample['dataset'][0], focal=focal)
 
         # print(depth.shape, pred.shape)
+        print("SAVING IMAGES?", "save_images" in config and config.save_images)
         if "save_images" in config and config.save_images:
-            import torchvision.transforms as transforms
-            # im = image.squeeze().cpu().numpy().transpose(1, 2, 0).astype(np.uint8)
             im = np.asarray(transforms.ToPILImage()(image.squeeze().cpu()))
             alpha = np.full((im.shape[0], im.shape[1], 1), 255, im.dtype)
             im = np.concatenate((im, alpha), axis=2)
@@ -341,7 +377,7 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
         #     Image.fromarray(d).save(os.path.join(config.save_images, f"{i}_depth.png"))
         #     Image.fromarray(p).save(os.path.join(config.save_images, f"{i}_pred.png"))
 
-        # break
+        break
 
     if round_vals:
         def r(m): return round(m, round_precision)
@@ -351,10 +387,22 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
     return metrics
 
 def main(config):
-    model = build_model(config)
-    test_loader = DepthDataLoader(config, 'online_eval').data
+    if config['model_name'][-2:] == 'v2':
+        encoder = config['pretrained_resource'][-8:-4] #'vitl' # or 'vits', 'vitb'
+        dataset = 'hypersim' # 'hypersim' for indoor model, 'vkitti' for outdoor model
+        max_depth = 80 # 20 for indoor model, 80 for outdoor model
+        # model = DepthAnythingV2(**{**model_configs[encoder], 'max_depth': max_depth})
+        model = DepthAnythingV2(**{**model_configs[encoder]})
+        model.load_state_dict(torch.load(config['pretrained_resource'], map_location='cpu'))
+        model.eval()
+
+        # Loading dataloader
+        test_loader = DepthDataLoader(config, 'online_eval', transform=transform_v2).data
+    else:
+        model = build_model(config)
+        test_loader = DepthDataLoader(config, 'online_eval').data
     model = model.cuda()
-    metrics = evaluate(model, test_loader, config)
+    metrics = evaluate(model, test_loader, config, model_name=config["model_name"])
     print(f"{colors.fg.green}")
     print(metrics)
     print(f"{colors.reset}")
@@ -365,8 +413,17 @@ def main(config):
 def eval_model(model_name, pretrained_resource, dataset='nyu', **kwargs):
 
     # Load default pretrained resource defined in config if not set
-    overwrite = {**kwargs, "pretrained_resource": pretrained_resource} if pretrained_resource else kwargs
-    config = get_config(model_name, "eval", dataset, **overwrite)
+    if model_name[-2:] == 'v2':
+        overwrite = {**kwargs, "pretrained_resource": pretrained_resource} if pretrained_resource else kwargs
+        config = get_dataset_config(model_name, "eval", dataset, **overwrite)
+        config['model_name'] = model_name
+        config['do_art_crop'] = True
+
+    else:
+        overwrite = {**kwargs, "pretrained_resource": pretrained_resource} if pretrained_resource else kwargs
+        config = get_config(model_name, "eval", dataset, **overwrite)
+        config['model_name'] = model_name
+    print("CONFIG: \n", config)
     # config = change_dataset(config, dataset)  # change the dataset
     pprint(config)
     print(f"Evaluating {model_name} on {dataset}...")
@@ -377,7 +434,7 @@ def eval_model(model_name, pretrained_resource, dataset='nyu', **kwargs):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--model", type=str,
-                        required=True, help="Name of the model to evaluate")
+                        required=True, help="Name of the model to evaluate", choices=["zoedepth", "zoedepthv2"])
     parser.add_argument("-p", "--pretrained_resource", type=str,
                         required=False, default="", help="Pretrained resource to use for fetching weights. If not set, default resource from model config is used,  Refer models.model_io.load_state_from_resource for more details.")
     parser.add_argument("-d", "--dataset", type=str, required=False,

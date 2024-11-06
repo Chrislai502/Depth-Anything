@@ -287,7 +287,7 @@ class DataLoadPreprocess(Dataset):
         else:
             self.reader = ImReader()
             
-        if config.dataset == 'art':
+        if config.dataset[:3] == 'art':
             self.crop_bound = config.crop_bound
 
     def postprocess(self, sample):

@@ -52,14 +52,40 @@ DATASETS_CONFIG = {
         "dataset": "art",
         "min_depth": 0.01,
         "max_depth": 80.0,
-        "data_path": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
-        "gt_path": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
-        "filenames_file": "./train_test_inputs/art_testing_filenames.txt",
+        "data_path": os.path.join(HOME_DIR, "ART_IMS_Z/rosbag2_2024_09_04-13_17_48_9"),
+        "gt_path": os.path.join(HOME_DIR, "ART_IMS_Z/rosbag2_2024_09_04-13_17_48_9"),
+        "filenames_file": "./train_test_inputs/art_filenames.txt",
         "input_height": 710,
         "input_width": 1018,  # 704
-        "data_path_eval": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
-        "gt_path_eval": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
-        "filenames_file_eval": "./train_test_inputs/art_testing_filenames.txt",
+        "data_path_eval": os.path.join(HOME_DIR, "ART_IMS_Z/rosbag2_2024_09_04-13_17_48_9"),
+        "gt_path_eval": os.path.join(HOME_DIR, "ART_IMS_Z/rosbag2_2024_09_04-13_17_48_9"),
+        "filenames_file_eval": "./train_test_inputs/art_filenames.txt",
+
+        "min_depth_eval": 1e-3,
+        "max_depth_eval": 80.0,
+
+        "do_random_rotate": False,
+        "degree": 1.0,
+        "crop_bound": 250,
+        "do_art_crop": True,
+        "do_kb_crop": False,
+        "garg_crop": False,
+        "eigen_crop": False,
+        "use_right": False,
+        "shuffle_test": False
+    },
+    "art-e": {
+        "dataset": "art",
+        "min_depth": 0.01,
+        "max_depth": 80.0,
+        "data_path": os.path.join(HOME_DIR, "ART_IMS_EUCLIDEAN/rosbag2_2024_09_04-13_17_48_9"),
+        "gt_path": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
+        "filenames_file": "./train_test_inputs/art_euclidean_filenames.txt",
+        "input_height": 710,
+        "input_width": 1018,  # 704
+        "data_path_eval": os.path.join(HOME_DIR, "ART_IMS_EUCLIDEAN/rosbag2_2024_09_04-13_17_48_9"),
+        "gt_path_eval": os.path.join(HOME_DIR, "ART_IMS_EUCLIDEAN/rosbag2_2024_09_04-13_17_48_9"),
+        "filenames_file_eval": "./train_test_inputs/art_euclidean_filenames.txt",
 
         "min_depth_eval": 1e-3,
         "max_depth_eval": 80.0,
@@ -342,6 +368,7 @@ def get_model_config(model_name, model_version=None):
     """
     config_fname = f"config_{model_name}_{model_version}.json" if model_version is not None else f"config_{model_name}.json"
     config_file = os.path.join(ROOT, "models", model_name, config_fname)
+    print(f"Config FILENAME: {config_file}")
     if not os.path.exists(config_file):
         return None
 
@@ -399,7 +426,7 @@ def get_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
     """
 
 
-    check_choices("Model", model_name, ["zoedepth", "zoedepth_nk"])
+    check_choices("Model", model_name, ["zoedepth", "zoedepth_nk", "zoedepthv2"])
     check_choices("Mode", mode, ["train", "infer", "eval"])
     if mode == "train":
         check_choices("Dataset", dataset, ["nyu", "kitti", "art", "mix", None])
@@ -455,6 +482,26 @@ def get_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
     config['model'] = model_name
     typed_config = {k: infer_type(v) for k, v in config.items()}
     # add hostname to config
+    config['hostname'] = platform.node()
+    return edict(typed_config)
+
+# def get_dataset_config
+def get_dataset_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
+    config = flatten({**COMMON_CONFIG, **COMMON_TRAINING_CONFIG})
+    overwrite_kwargs = split_combined_args(overwrite_kwargs)
+    config = {**config, **overwrite_kwargs}
+
+    # Casting to bool   # TODO: Not necessary. Remove and test
+    for key in KEYS_TYPE_BOOL:
+        if key in config:
+            config[key] = bool(config[key])
+    
+    if dataset is not None:
+        config['dataset'] = dataset
+        config = {**DATASETS_CONFIG[dataset], **config}
+    
+    config['model'] = model_name
+    typed_config = {k: infer_type(v) for k, v in config.items()}
     config['hostname'] = platform.node()
     return edict(typed_config)
 
