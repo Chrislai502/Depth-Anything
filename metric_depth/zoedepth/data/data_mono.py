@@ -217,22 +217,38 @@ class SampleRatioAwareDataLoader(object):
     If a dataset is exhausted before others, it resets (restarts) so the ratios are maintained.
     '''
     def __init__(self, dataloaders:dict, ratios:dict):
-        print("DEBUG: initializing SampleRatioAwareDataLoader")
         self.dataloaders = dataloaders
 
         # Normalize the ratios
         tot = sum(ratios.values())
+        min_ratio = min(ratios.values())
         self.normalized_ratios = {key: value / tot for key, value in ratios.items()}
-
-        self.dataloader_size = int(sum([v * len(self.dataloaders[k]) for k, v in self.normalized_ratios.items()]))# dataloader size
+        ratios = {key: value / min_ratio for key, value in ratios.items()} # Make the smallest ratio 1
 
         # Determine the smallest dataset in terms of length
         self.smallest_dataset_key = min(self.dataloaders, key=lambda k: len(self.dataloaders[k]))
         self.smallest_dataset_len = len(self.dataloaders[self.smallest_dataset_key])
-        print("DEBUG: Smallest dataset is: {}".format(self.smallest_dataset_key))
-        print("DEBUG: Length of smallest dataset is: {}".format(self.smallest_dataset_len))
-        print("DEBUG: Dataloader size is: {}".format(self.dataloader_size))
-        print("DEBUG: Ratios are: {}".format(self.normalized_ratios))
+
+        # Logging some dataset metrics
+        num_samples = 0
+        num_batches = 0
+        for k in self.dataloaders.keys():
+            loader = self.dataloaders[k]
+            print("Dataset {} has {} samples, {} batches".format(k, len(loader)* loader.batch_size, len(loader)))
+            num_samples += len(loader) * loader.batch_size
+            num_batches += len(loader)
+
+        # Calculating Dataloader size
+        self.dataloader_size = int(sum([v * self.smallest_dataset_len for v in ratios.values()])) # dataloader size
+
+        # Whole dataset will have this many samples
+        print("Whole Unnormalized dataset will have total {} samples and {} batches".format(num_samples, num_batches))
+        print("Dataloader Presumed Normalized dataset will have total {} batches".format(self.dataloader_size))
+        
+        # print("DEBUG: Smallest dataset is: {}".format(self.smallest_dataset_key))
+        # print("DEBUG: Length of smallest dataset is: {}".format(self.smallest_dataset_len))
+        # print("DEBUG: Dataloader size is: {}".format(self.dataloader_size))
+        print("DEBUG: Ratios are: {}".format(ratios))
 
     def ratio_aware_repetitive_roundrobin(self):
         """
@@ -244,19 +260,15 @@ class SampleRatioAwareDataLoader(object):
         repetitive_roundrobin('ABC', 'D', 'EF') --> A D E B D F C D E
         """
         # Repetitive roundrobin
-        print("DEBUG: ratio_aware_repetitive_roundrobin")
         iterables_ = {key : iter(it) for key, it in self.dataloaders.items()}
-        print("DEBUG: Iterables are: {}".format(iterables_))
         dataset_keys = list(self.dataloaders.keys())
         probabilities = [self.normalized_ratios[key] for key in dataset_keys]
         exhausted = {key: False for key in dataset_keys}
-        print("DEBUG: Probabilities are: {}".format(probabilities))
 
-        while not all(list(exhausted.values())):
-            print("DEBUG: Not all exhausted")
+        while not exhausted[self.smallest_dataset_key]:
             # Pick a key at random
             chosen_key = random.choices(dataset_keys, weights=probabilities, k=1)[0]
-            print("DEBUG: Chosen key is: {}".format(chosen_key))
+            # print("DEBUG: Chosen key is: {}".format(chosen_key))
             # for i, it in enumerate(iterables_):
             try:
                 yield next(iterables_[chosen_key])
