@@ -5,7 +5,7 @@ from tqdm import tqdm
 dataset_path = "/home/art-chris/testing/depth_anything/Depth-Anything/metric_depth/data/ART/"
 track = "IMS"
 bag = "rosbag2_2024_09_04-13_17_48_9"
-dataset_type = "train" # or "eval"
+train_eval = "eval" # or "eval"
 
 dataset_path = os.path.join(dataset_path, track, bag)
 dataset_type = "art"
@@ -27,7 +27,7 @@ for calibration_path in os.listdir(os.path.join(dataset_path, "intrinsics")):
 print(f"Total calibration files collected: {len(calibration_paths)}")
 
 # Open file for writing output
-output_path = f"./{dataset_type}_{dataset_type}_filenames.txt"
+output_path = f"./{dataset_type}_{train_eval}_filenames.txt"
 
 with open(output_path, "w") as f:
     print(f"Writing output to {output_path}...")
