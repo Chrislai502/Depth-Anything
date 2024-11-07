@@ -38,7 +38,7 @@ def test_data_loading(config, dataset_class, sample_ratio = None, mode="train"):
         mode (str): Mode for data loading, e.g., "train" or "online_eval".
     """
     print(f"\nTesting {dataset_class.__name__} in '{mode}' mode")
-    print("Debug check torch cuda is available: ", torch.cuda.is_available())
+    # print("Debug check torch cuda is available: ", torch.cuda.is_available())
 
     # Initialize the dataset loader
     if sample_ratio:
@@ -50,28 +50,28 @@ def test_data_loading(config, dataset_class, sample_ratio = None, mode="train"):
     # pprint(config)
 
     # Iterate through a few batches to test data loading
-    num_batches_to_test = 3
-    print(data_loader)
+    num_batches_to_test = 2000
     for i, batch in enumerate(data_loader):
         print(f"Batch {i + 1}/{num_batches_to_test}")
         for key, value in batch.items():
             if torch.is_tensor(value):
-                print(f"  {key}: shape {value.shape}")
-            else:
-                print(f"  {key}: {value}")
+                # print(f"  {key}: shape {value.shape}")
+            # else:
+            #     print(f"  {key}: {value}")
+                pass
         
         if i + 1 >= num_batches_to_test:
             break  # Stop after testing a few batches
 
 if __name__ == '__main__':
     # Fix random seed for reproducibility
-    fix_random_seed(42)
+    fix_random_seed(41)
     # Check if CUDA is available
     if not torch.cuda.is_available():
         print("CUDA is not available. Please use a GPU to run the script.")
 
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Test data loading for MixedNYUKITTI and MixedARTKITTINYU datasets.")
+    parser = argparse.ArgumentParser(description="Test data loading for MixedARTKITTINYU datasets.")
     parser.add_argument("-m", "--model", type=str, default="synunet", help="Model name (default: synunet)")
     parser.add_argument("-d", "--dataset", type=str, default='mix', help="Dataset name (default: mix)")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for testing (default: 4)")
@@ -89,4 +89,4 @@ if __name__ == '__main__':
     # test_data_loading(config, MixedNYUKITTI, mode="train")
 
     # Test MixedARTKITTINYU
-    test_data_loading(config, MixedARTKITTINYU, mode="train")
+    test_data_loading(config, MixedARTKITTINYU, {'art': 1, 'kitti': 2}, mode="train")
