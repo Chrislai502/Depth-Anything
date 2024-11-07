@@ -474,7 +474,7 @@ def get_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
     if mode == "train":
         orig_dataset = dataset
         if dataset == "mix":
-            dataset = 'nyu'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
+            dataset = 'kitti'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
         if dataset is not None:
             config['project'] = f"MonoDepth3-{orig_dataset}"  # Set project for wandb
 

@@ -268,8 +268,8 @@ class SampleRatioAwareDataLoader(object):
         while not exhausted[self.smallest_dataset_key]:
             # Pick a key at random
             chosen_key = random.choices(dataset_keys, weights=probabilities, k=1)[0]
+            
             # print("DEBUG: Chosen key is: {}".format(chosen_key))
-            # for i, it in enumerate(iterables_):
             try:
                 yield next(iterables_[chosen_key])
             except StopIteration:

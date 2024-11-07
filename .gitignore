@@ -12,8 +12,7 @@ data
 *.pt
 *.pth
 output
-
-
+wandb
 
 ## PyTorch
 
