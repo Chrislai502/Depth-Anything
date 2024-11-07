@@ -264,11 +264,12 @@ class SampleRatioAwareDataLoader(object):
         dataset_keys = list(self.dataloaders.keys())
         probabilities = [self.normalized_ratios[key] for key in dataset_keys]
         exhausted = {key: False for key in dataset_keys}
+        running_count = 0 # To keep track of the number of samples yielded
 
-        while not exhausted[self.smallest_dataset_key]:
+        while running_count < self.dataloader_size and not all(exhausted.values()):
             # Pick a key at random
             chosen_key = random.choices(dataset_keys, weights=probabilities, k=1)[0]
-            
+
             # print("DEBUG: Chosen key is: {}".format(chosen_key))
             try:
                 yield next(iterables_[chosen_key])
@@ -277,6 +278,8 @@ class SampleRatioAwareDataLoader(object):
                 iterables_[chosen_key] = itertools.cycle(self.dataloaders[chosen_key])
                 # First elements may get repeated if one iterable is shorter than the others
                 yield next(iterables_[chosen_key])
+
+            running_count += 1
 
     def __iter__(self):
         return self.ratio_aware_repetitive_roundrobin()

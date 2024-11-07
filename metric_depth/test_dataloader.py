@@ -51,14 +51,15 @@ def test_data_loading(config, dataset_class, sample_ratio = None, mode="train"):
 
     # Iterate through a few batches to test data loading
     num_batches_to_test = 2000
+    print
     for i, batch in enumerate(data_loader):
         print(f"Batch {i + 1}/{num_batches_to_test}")
-        for key, value in batch.items():
-            if torch.is_tensor(value):
-                # print(f"  {key}: shape {value.shape}")
-            # else:
-            #     print(f"  {key}: {value}")
-                pass
+        # for key, value in batch.items():
+        #     if torch.is_tensor(value):
+        #         # print(f"  {key}: shape {value.shape}")
+        #     # else:
+        #     #     print(f"  {key}: {value}")
+        #         pass
         
         if i + 1 >= num_batches_to_test:
             break  # Stop after testing a few batches
