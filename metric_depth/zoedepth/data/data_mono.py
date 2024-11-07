@@ -135,9 +135,7 @@ class DepthDataLoader(object):
 
         if mode == 'train':
 
-            Dataset = DataLoadPreprocess
-            self.training_samples = Dataset(
-                config, mode, transform=transform, device=device)
+            self.training_samples = DataLoadPreprocess(config, mode, transform=transform, device=device)
 
             if config.distributed:
                 self.train_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -163,7 +161,7 @@ class DepthDataLoader(object):
             else:
                 self.eval_sampler = None
             self.data = DataLoader(self.testing_samples, 1,
-                                   shuffle=kwargs.get("shuffle_test", False),
+                                   shuffle=kwargs.get("shuffle", False),
                                    num_workers=1,
                                    pin_memory=False,
                                    sampler=self.eval_sampler)
@@ -172,47 +170,144 @@ class DepthDataLoader(object):
             self.testing_samples = DataLoadPreprocess(
                 config, mode, transform=transform)
             self.data = DataLoader(self.testing_samples,
-                                   1, shuffle=False, num_workers=1)
+                                   1, shuffle=kwargs.get("shuffle", False), num_workers=1)
 
         else:
             print(
                 'mode should be one of \'train, test, online_eval\'. Got {}'.format(mode))
 
 
-def repetitive_roundrobin(*iterables):
-    """
-    cycles through iterables but sample wise
-    first yield first sample from first iterable then first sample from second iterable and so on
-    then second sample from first iterable then second sample from second iterable and so on
-
-    If one iterable is shorter than the others, it is repeated until all iterables are exhausted
-    repetitive_roundrobin('ABC', 'D', 'EF') --> A D E B D F C D E
-    """
-    # Repetitive roundrobin
-    iterables_ = [iter(it) for it in iterables]
-    exhausted = [False] * len(iterables)
-    while not all(exhausted):
-        for i, it in enumerate(iterables_):
-            try:
-                yield next(it)
-            except StopIteration:
-                exhausted[i] = True
-                iterables_[i] = itertools.cycle(iterables[i])
-                # First elements may get repeated if one iterable is shorter than the others
-                yield next(iterables_[i])
-
 
 class RepetitiveRoundRobinDataLoader(object):
     def __init__(self, *dataloaders):
         self.dataloaders = dataloaders
 
+    def repetitive_roundrobin(self, *iterables):
+        """
+        cycles through iterables but sample wise
+        first yield first sample from first iterable then first sample from second iterable and so on
+        then second sample from first iterable then second sample from second iterable and so on
+
+        If one iterable is shorter than the others, it is repeated until all iterables are exhausted
+        repetitive_roundrobin('ABC', 'D', 'EF') --> A D E B D F C D E
+        """
+        # Repetitive roundrobin
+        iterables_ = [iter(it) for it in iterables]
+        exhausted = [False] * len(iterables)
+        while not all(exhausted):
+            for i, it in enumerate(iterables_):
+                try:
+                    yield next(it)
+                except StopIteration:
+                    exhausted[i] = True
+                    iterables_[i] = itertools.cycle(iterables[i])
+                    # First elements may get repeated if one iterable is shorter than the others
+                    yield next(iterables_[i])
+
     def __iter__(self):
-        return repetitive_roundrobin(*self.dataloaders)
+        return self.repetitive_roundrobin(*self.dataloaders)
 
     def __len__(self):
         # First samples get repeated, thats why the plus one
         return len(self.dataloaders) * (max(len(dl) for dl in self.dataloaders) + 1)
 
+class SampleRatioAwareDataLoader(object):
+    '''
+    This dataloader samples from multiple datasets according to specified ratios.
+    If a dataset is exhausted before others, it resets (restarts) so the ratios are maintained.
+    '''
+    def __init__(self, dataloaders:dict, ratios:dict):
+        print("DEBUG: initializing SampleRatioAwareDataLoader")
+        self.dataloaders = dataloaders
+
+        # Normalize the ratios
+        tot = sum(ratios.values())
+        self.normalized_ratios = {key: value / tot for key, value in ratios.items()}
+
+        self.dataloader_size = int(sum([v * len(self.dataloaders[k]) for k, v in self.normalized_ratios.items()]))# dataloader size
+
+        # Determine the smallest dataset in terms of length
+        self.smallest_dataset_key = min(self.dataloaders, key=lambda k: len(self.dataloaders[k]))
+        self.smallest_dataset_len = len(self.dataloaders[self.smallest_dataset_key])
+        print("DEBUG: Smallest dataset is: {}".format(self.smallest_dataset_key))
+        print("DEBUG: Length of smallest dataset is: {}".format(self.smallest_dataset_len))
+        print("DEBUG: Dataloader size is: {}".format(self.dataloader_size))
+        print("DEBUG: Ratios are: {}".format(self.normalized_ratios))
+
+    def ratio_aware_repetitive_roundrobin(self):
+        """
+        cycles through iterables but sample wise
+        first yield first sample from first iterable then first sample from second iterable and so on
+        then second sample from first iterable then second sample from second iterable and so on
+
+        If one iterable is shorter than the others, it is repeated until all iterables are exhausted
+        repetitive_roundrobin('ABC', 'D', 'EF') --> A D E B D F C D E
+        """
+        # Repetitive roundrobin
+        print("DEBUG: ratio_aware_repetitive_roundrobin")
+        iterables_ = {key : iter(it) for key, it in self.dataloaders.items()}
+        print("DEBUG: Iterables are: {}".format(iterables_))
+        dataset_keys = list(self.dataloaders.keys())
+        probabilities = [self.normalized_ratios[key] for key in dataset_keys]
+        exhausted = {key: False for key in dataset_keys}
+        print("DEBUG: Probabilities are: {}".format(probabilities))
+
+        while not all(list(exhausted.values())):
+            print("DEBUG: Not all exhausted")
+            # Pick a key at random
+            chosen_key = random.choices(dataset_keys, weights=probabilities, k=1)[0]
+            print("DEBUG: Chosen key is: {}".format(chosen_key))
+            # for i, it in enumerate(iterables_):
+            try:
+                yield next(iterables_[chosen_key])
+            except StopIteration:
+                exhausted[chosen_key] = True
+                iterables_[chosen_key] = itertools.cycle(self.dataloaders[chosen_key])
+                # First elements may get repeated if one iterable is shorter than the others
+                yield next(iterables_[chosen_key])
+
+    def __iter__(self):
+        return self.ratio_aware_repetitive_roundrobin()
+
+    def __len__(self):
+        # First samples get repeated, thats why the plus one
+        return self.dataloader_size
+
+class MixedARTKITTINYU(object):
+    def __init__(self, config, mode, sample_ratio:dict =None, device='cpu', **kwargs):
+        
+        if sample_ratio is None:
+            sample_ratio = {
+                'kitti': 1,
+                'art' : 1,
+                # 'nyu' : 1
+            }
+
+        # Dataset Configurations
+        config = edict(config)
+        config.workers = config.workers // 2
+        self.config = config
+        conf_list = {}
+        for k in sample_ratio.keys():
+            conf_list[k] = change_dataset(edict(config), k)
+        
+        # Testing Dataset
+        art_test_conf = change_dataset(edict(config), 'art_test')
+
+        # Make art_track2 default for testing
+        self.config = config = art_test_conf
+        img_size = self.config.get("img_size", None)
+        img_size = img_size if self.config.get("do_input_resize", False) else None
+        
+        if mode == 'train':
+            dataloaders = {}
+            for dataset_type, conf in conf_list.items():
+                dataloaders[dataset_type] = DepthDataLoader(conf, mode, device=device, transform=preprocessing_transforms(mode, size=img_size)).data
+    
+            # Ratio Aware Dataloader
+            self.data = SampleRatioAwareDataLoader(dataloaders, ratios=sample_ratio)
+        else:
+            self.data = DepthDataLoader(art_test_conf, mode, device=device).data
 
 class MixedNYUKITTI(object):
     def __init__(self, config, mode, device='cpu', **kwargs):
@@ -270,7 +365,25 @@ class ImReader:
 
 class DataLoadPreprocess(Dataset):
     def __init__(self, config, mode, transform=None, is_for_online_eval=False, **kwargs):
+        """
+        Initializes the dataset loader.
+
+        Parameters:
+        - config: Configuration object containing various settings (e.g., file paths, augmentation options).
+        - mode: Specifies the mode ('train', 'online_eval', or other modes) that influences data loading.
+        - transform: Optional transformation function to apply to samples.
+        - is_for_online_eval: Boolean indicating if the dataset is being used for online evaluation.
+        - kwargs: Additional arguments.
+        """
+        
+        # Store configuration, mode, and transformation function
         self.config = config
+        self.mode = mode
+        self.transform = transform
+        self.is_for_online_eval = is_for_online_eval
+
+        # Load filenames based on mode (training or evaluation).
+        # If mode is 'online_eval', load from `filenames_file_eval`, otherwise from `filenames_file`.
         if mode == 'online_eval':
             with open(config.filenames_file_eval, 'r') as f:
                 self.filenames = f.readlines()
@@ -278,189 +391,152 @@ class DataLoadPreprocess(Dataset):
             with open(config.filenames_file, 'r') as f:
                 self.filenames = f.readlines()
 
-        self.mode = mode
-        self.transform = transform
+        # Initialize a tensor transformation method specific to the mode
         self.to_tensor = ToTensor(mode)
-        self.is_for_online_eval = is_for_online_eval
+        
+        # Initialize the image reader object based on configuration
         if config.use_shared_dict:
+            # Use a cached reader if `use_shared_dict` is enabled
             self.reader = CachedReader(config.shared_dict)
         else:
+            # Default to a simple image reader
             self.reader = ImReader()
-            
+
+        # Set cropping bound if using the 'art' dataset
         if config.dataset == 'art':
             self.crop_bound = config.crop_bound
 
     def postprocess(self, sample):
+        """
+        Placeholder for any postprocessing that needs to be applied to each sample.
+        By default, it just returns the sample as-is.
+        """
         return sample
 
     def __getitem__(self, idx):
+        """
+        Retrieves a data sample at a specified index.
+
+        Parameters:
+        - idx: Index of the data sample to retrieve.
+
+        Returns:
+        - A dictionary containing the processed sample data.
+        """
+        
+        # Get the path information for the sample
         sample_path = self.filenames[idx]
-        focal = float(sample_path.split()[2])
-        sample = {}
+        focal = float(sample_path.split()[2])  # Parse the focal length from the path
+        sample = {}  # Initialize an empty dictionary to store the sample data
 
+        # Check if we are in training mode
         if self.mode == 'train':
+            # Determine the image and depth paths based on dataset and configuration settings
             if self.config.dataset == 'kitti' and self.config.use_right and random.random() > 0.5:
-                image_path = os.path.join(
-                    self.config.data_path, remove_leading_slash(sample_path.split()[3]))
-                depth_path = os.path.join(
-                    self.config.gt_path, remove_leading_slash(sample_path.split()[4]))
+                # For KITTI dataset with right camera images (50% probability)
+                image_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[3]))
+                depth_path = os.path.join(self.config.gt_path, remove_leading_slash(sample_path.split()[4]))
+            elif self.config.dataset == 'art':
+                path = os.path.join(self.config.data_path, self.config.track, self.config.bag)
+                image_path = os.path.join(path, remove_leading_slash(sample_path.split()[0]))
+                depth_path = os.path.join(path, remove_leading_slash(sample_path.split()[1]))
             else:
-                image_path = os.path.join(
-                    self.config.data_path, remove_leading_slash(sample_path.split()[0]))
-                depth_path = os.path.join(
-                    self.config.gt_path, remove_leading_slash(sample_path.split()[1]))
+                # Standard case (left images)
+                image_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[0]))
+                depth_path = os.path.join(self.config.gt_path, remove_leading_slash(sample_path.split()[1]))
 
+            # Load image and depth data
             image = self.reader.open(image_path)
             depth_gt = self.reader.open(depth_path)
-            w, h = image.size
+            w, h = image.size  # Get original dimensions of the image
 
+            # Apply KITTI-specific cropping if enabled
             if self.config.do_kb_crop:
-                height = image.height
-                width = image.width
+                height, width = image.height, image.width
                 top_margin = int(height - 352)
                 left_margin = int((width - 1216) / 2)
-                depth_gt = depth_gt.crop(
-                    (left_margin, top_margin, left_margin + 1216, top_margin + 352))
-                image = image.crop(
-                    (left_margin, top_margin, left_margin + 1216, top_margin + 352))
+                # Crop both image and depth ground truth
+                depth_gt = depth_gt.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
+                image = image.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
 
+            # Apply Art dataset-specific cropping if enabled
             if self.config.do_art_crop:
-                print("Cropping Art!")
-                # Get the original dimensions of the image
                 height = image.height
                 width = image.width
-
-                # Define the top and bottom margins for cropping
-                top_margin = int((height - 300) / 2)
-                bottom_margin = height - top_margin  # Keeps a centered crop along the height
-
-                # Perform the crop on both the depth map and the image
+                top_margin = int((height - self.crop_bound) / 2)
+                bottom_margin = height - top_margin
+                # Crop both image and depth ground truth
                 depth_gt = depth_gt.crop((0, top_margin, width, bottom_margin))
                 image = image.crop((0, top_margin, width, bottom_margin))
 
-            # Avoid blank boundaries due to pixel registration?
-            # Train images have white border. Test images have black border.
+            # Handle boundaries in the NYU dataset
             if self.config.dataset == 'nyu' and self.config.avoid_boundary:
-                # print("Avoiding Blank Boundaries!")
-                # We just crop and pad again with reflect padding to original size
-                # original_size = image.size
                 crop_params = get_white_border(np.array(image, dtype=np.uint8))
                 image = image.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
                 depth_gt = depth_gt.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
-
-                # Use reflect padding to fill the blank
-                image = np.array(image)
-                image = np.pad(image, ((crop_params.top, h - crop_params.bottom), (crop_params.left, w - crop_params.right), (0, 0)), mode='reflect')
+                # Reflect padding to maintain original dimensions
+                image = np.pad(image, ((crop_params.top, h - crop_params.bottom), 
+                                       (crop_params.left, w - crop_params.right), (0, 0)), mode='reflect')
                 image = Image.fromarray(image)
-
-                depth_gt = np.array(depth_gt)
-                depth_gt = np.pad(depth_gt, ((crop_params.top, h - crop_params.bottom), (crop_params.left, w - crop_params.right)), 'constant', constant_values=0)
+                depth_gt = np.pad(depth_gt, ((crop_params.top, h - crop_params.bottom), 
+                                             (crop_params.left, w - crop_params.right)), 'constant', constant_values=0)
                 depth_gt = Image.fromarray(depth_gt)
 
-
-            if self.config.do_random_rotate and (self.config.aug):
+            # Random rotation augmentation
+            if self.config.do_random_rotate and self.config.aug:
                 random_angle = (random.random() - 0.5) * 2 * self.config.degree
                 image = self.rotate_image(image, random_angle)
-                depth_gt = self.rotate_image(
-                    depth_gt, random_angle, flag=Image.NEAREST)
+                depth_gt = self.rotate_image(depth_gt, random_angle, flag=Image.NEAREST)
 
+            # Convert image and depth to float32 arrays and normalize
             image = np.asarray(image, dtype=np.float32) / 255.0
             depth_gt = np.asarray(depth_gt, dtype=np.float32)
             depth_gt = np.expand_dims(depth_gt, axis=2)
 
+            # Scale depth values depending on the dataset
             if self.config.dataset == 'nyu':
-                depth_gt = depth_gt / 1000.0
+                depth_gt /= 1000.0
             else:
-                depth_gt = depth_gt / 256.0
+                depth_gt /= 256.0
 
-            if self.config.aug and (self.config.random_crop):
-                image, depth_gt = self.random_crop(
-                    image, depth_gt, self.config.input_height, self.config.input_width)
-            
+            # Apply random crop and random translation if enabled in config
+            if self.config.aug and self.config.random_crop:
+                image, depth_gt = self.random_crop(image, depth_gt, self.config.input_height, self.config.input_width)
             if self.config.aug and self.config.random_translate:
-                # print("Random Translation!")
                 image, depth_gt = self.random_translate(image, depth_gt, self.config.max_translation)
 
+            # Additional preprocessing for training
             image, depth_gt = self.train_preprocess(image, depth_gt)
-            mask = np.logical_and(depth_gt > self.config.min_depth,
-                                  depth_gt < self.config.max_depth).squeeze()[None, ...]
-            sample = {'image': image, 'depth': depth_gt, 'focal': focal,
-                      'mask': mask, **sample}
+            mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
+            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'mask': mask, **sample}
 
         else:
-            if self.mode == 'online_eval':
-                data_path = self.config.data_path_eval
-            else:
-                data_path = self.config.data_path
+            # Loading for online evaluation or inference
+            data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
+            image_path = os.path.join(data_path, remove_leading_slash(sample_path.split()[0]))
+            image = np.asarray(self.reader.open(image_path), dtype=np.float32) / 255.0
 
-            image_path = os.path.join(
-                data_path, remove_leading_slash(sample_path.split()[0]))
-            image = np.asarray(self.reader.open(image_path),
-                               dtype=np.float32) / 255.0
-
+            # For online evaluation, load depth data if available
             if self.mode == 'online_eval':
                 gt_path = self.config.gt_path_eval
-                depth_path = os.path.join(
-                    gt_path, remove_leading_slash(sample_path.split()[1]))
-                has_valid_depth = False
+                depth_path = os.path.join(gt_path, remove_leading_slash(sample_path.split()[1]))
                 try:
                     depth_gt = self.reader.open(depth_path)
                     has_valid_depth = True
                 except IOError:
-                    depth_gt = False
-                    # print('Missing gt for {}'.format(image_path))
+                    depth_gt = None
+                    has_valid_depth = False
 
+                # Process depth ground truth if valid
                 if has_valid_depth:
                     depth_gt = np.asarray(depth_gt, dtype=np.float32)
                     depth_gt = np.expand_dims(depth_gt, axis=2)
-                    if self.config.dataset == 'nyu':
-                        depth_gt = depth_gt / 1000.0
-                    else:
-                        depth_gt = depth_gt / 256.0
+                    depth_gt /= (1000.0 if self.config.dataset == 'nyu' else 256.0)
+                    mask = np.logical_and(depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
 
-                    mask = np.logical_and(
-                        depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
-                else:
-                    mask = False
-
-            if self.config.do_kb_crop:
-                height = image.shape[0]
-                width = image.shape[1]
-                top_margin = int(height - 352)
-                left_margin = int((width - 1216) / 2)
-                image = image[top_margin:top_margin + 352,
-                              left_margin:left_margin + 1216, :]
-                if self.mode == 'online_eval' and has_valid_depth:
-                    depth_gt = depth_gt[top_margin:top_margin +
-                                        352, left_margin:left_margin + 1216, :]
-
-            if self.config.do_art_crop:
-                height = image.shape[0]
-                width = image.shape[1]
-                
-                # Define the new top and bottom crop margins, reducing by 100 pixels from both the top and the bottom
-                top_crop = self.crop_bound
-                bottom_crop = height - self.crop_bound  # End at height - 100 to remove the last 100 pixels
-                
-                # Apply cropping to the image, keeping the full width
-                image = image[top_crop:bottom_crop, :, :]
-                
-                # If in online evaluation mode and depth_gt is valid, apply the same crop to depth_gt
-                if self.mode == 'online_eval' and has_valid_depth:
-                    depth_gt = depth_gt[top_crop:bottom_crop, :]
-
-            if self.mode == 'online_eval':
-                sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth,
-                          'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1],
-                          'mask': mask}
-            else:
-                sample = {'image': image, 'focal': focal}
-
-        if (self.mode == 'train') or ('has_valid_depth' in sample and sample['has_valid_depth']):
-            mask = np.logical_and(depth_gt > self.config.min_depth,
-                                  depth_gt < self.config.max_depth).squeeze()[None, ...]
-            sample['mask'] = mask
-
+            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth, 'mask': mask}
+        
+        # Post-processing, transformations, and sample completion
         if self.transform:
             sample = self.transform(sample)
 

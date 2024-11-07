@@ -50,20 +50,49 @@ COMMON_CONFIG = {
 DATASETS_CONFIG = {
     "art": {
         "dataset": "art",
+        "track": "IMS",
+        "bag" : "rosbag2_2024_09_04-13_17_48_9",
         "min_depth": 0.01,
-        "max_depth": 80.0,
-        "data_path": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
-        "gt_path": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
-        "filenames_file": "./train_test_inputs/art_testing_filenames.txt",
+        "max_depth": 110.0,
+        "data_path": os.path.join(HOME_DIR, "ART/"),
+        "gt_path": os.path.join(HOME_DIR, "ART/"),
+        "filenames_file": "./train_test_inputs/art_train_filenames.txt",
         "input_height": 710,
         "input_width": 1018,  # 704
-        "data_path_eval": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
-        "gt_path_eval": os.path.join(HOME_DIR, "ART_IMS/rosbag2_2024_09_04-13_17_48_9"),
-        "filenames_file_eval": "./train_test_inputs/art_testing_filenames.txt",
+        "data_path_eval": os.path.join(HOME_DIR, "ART/"),
+        "gt_path_eval": os.path.join(HOME_DIR, "ART/"),
+        "filenames_file_eval": "./train_test_inputs/art_eval_filenames.txt",
 
         "min_depth_eval": 1e-3,
-        "max_depth_eval": 80.0,
+        "max_depth_eval": 110.0,
 
+        "do_random_rotate": True,
+        "degree": 1.0,
+        "crop_bound": 250,
+        "do_art_crop": True,
+        "do_kb_crop": False,
+        "garg_crop": False,
+        "eigen_crop": False,
+        "use_right": False,
+        "shuffle": False # Dataset
+    },
+    "art_test": {
+        "dataset": "art",
+        "track": "IMS",
+        "bag" : "rosbag2_2024_09_04-13_17_48_9",
+        "max_depth": 110.0,
+        "min_depth": 0.01,
+        "data_path": os.path.join(HOME_DIR, "ART/"),
+        "gt_path": os.path.join(HOME_DIR, "ART/"),
+        "filenames_file": "./train_test_inputs/art_eval_filenames.txt",
+        "input_height": 710,
+        "input_width": 1018,  # 704
+        "data_path_eval": os.path.join(HOME_DIR, "ART/"),
+        "gt_path_eval": os.path.join(HOME_DIR, "ART/"),
+        "filenames_file_eval": "./train_test_inputs/art_eval_filenames.txt",
+
+        "min_depth_eval": 1e-3,
+        "max_depth_eval": 110.0,
         "do_random_rotate": False,
         "degree": 1.0,
         "crop_bound": 250,
@@ -72,7 +101,7 @@ DATASETS_CONFIG = {
         "garg_crop": False,
         "eigen_crop": False,
         "use_right": False,
-        "shuffle_test": False
+        "shuffle": False # Dataset
     },
     "kitti": {
         "dataset": "kitti",
@@ -93,9 +122,11 @@ DATASETS_CONFIG = {
         "do_random_rotate": True,
         "degree": 1.0,
         "do_kb_crop": True,
+        "do_art_crop": False,
         "garg_crop": True,
         "eigen_crop": False,
-        "use_right": False
+        "use_right": False,
+        "shuffle": True # Dataset
     },
     "kitti_test": {
         "dataset": "kitti",
@@ -262,7 +293,7 @@ ALL_EVAL_DATASETS = ALL_INDOOR + ALL_OUTDOOR
 
 COMMON_TRAINING_CONFIG = {
     "dataset": "nyu",
-    "distributed": True,
+    "distributed": False,  # Set to True for multi-GPU training
     "workers": 16,
     "clip_grad": 0.1,
     "use_shared_dict": False,
