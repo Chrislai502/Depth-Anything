@@ -79,7 +79,7 @@ DATASETS_CONFIG = {
     "kitti": {
         "dataset": "kitti",
         "min_depth": 0.001,
-        "max_depth": 80,
+        "max_depth": 120.0,
         "data_path": os.path.join(HOME_DIR, "Kitti/raw_data"),
         "gt_path": os.path.join(HOME_DIR, "Kitti/data_depth_annotated/train"),
         "filenames_file": "./train_test_inputs/kitti_eigen_train_files_with_gt.txt",
@@ -90,7 +90,7 @@ DATASETS_CONFIG = {
         "filenames_file_eval": "./train_test_inputs/kitti_eigen_test_files_with_gt.txt", # Differentiate train and val using this
 
         "min_depth_eval": 1e-3,
-        "max_depth_eval": 80,
+        "max_depth_eval": 120.0,
 
         "do_random_rotate": True,
         "degree": 1.0,
@@ -444,18 +444,18 @@ def get_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
             new_bin_conf.append(conf)
         config['bin_conf'] = new_bin_conf
 
-    if dataset == "mix":
-        dataset = 'kitti'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
 
     if mode == "train":
         orig_dataset = dataset
-        # if dataset == "mix":
-        #     dataset = 'kitti'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
+        if dataset == "mix":
+            dataset = 'kitti'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
         if dataset is not None:
             config['project'] = f"MonoDepth3-{orig_dataset}"  # Set project for wandb
 
     if dataset is not None:
         config['dataset'] = dataset
+        if dataset == "mix":
+            dataset = 'kitti'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
         config = {**DATASETS_CONFIG[dataset], **config}
         
 

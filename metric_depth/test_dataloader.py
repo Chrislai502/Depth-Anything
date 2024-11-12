@@ -54,12 +54,13 @@ def test_data_loading(config, dataset_class, sample_ratio = None, mode="train"):
     print
     for i, batch in enumerate(data_loader):
         print(f"Batch {i + 1}/{num_batches_to_test}")
-        # for key, value in batch.items():
-        #     if torch.is_tensor(value):
-        #         # print(f"  {key}: shape {value.shape}")
-        #     # else:
-        #     #     print(f"  {key}: {value}")
-        #         pass
+        for key, value in batch.items():
+            if torch.is_tensor(value):
+                print(f"  {key}: shape {value.shape}")
+            # else:
+            #     print(f"  {key}: {value}")
+                pass
+        pass
         
         if i + 1 >= num_batches_to_test:
             break  # Stop after testing a few batches
@@ -82,11 +83,12 @@ if __name__ == '__main__':
 
     # Load configuration
     config = get_config(args.model, "train", args.dataset)
-    config = get_config(args.model, "eval", args.dataset)
+    print(f"Config in test_dataloader.py: {hex(id(config))}")
+    # config = get_config(args.model, "eval", args.dataset)
     config.batch_size = args.batch_size
     config.num_workers = args.num_workers
     config.mode = 'train'  # Ensure mode is set to 'train'
-    config.mode = 'eval'
+    # config.mode = 'eval'
 
     # Test MixedNYUKITTI
     # test_data_loading(config, MixedNYUKITTI, mode="train")

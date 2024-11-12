@@ -25,7 +25,7 @@ from zoedepth.utils.config import get_config
 from zoedepth.utils.arg_utils import parse_unknown
 from zoedepth.trainers.builder import get_trainer
 from zoedepth.models.builder import build_model
-from zoedepth.data.data_mono import MixedARTKITTINYU
+from zoedepth.data.data_mono import MixedARTKITTINYU, DepthDataLoader
 
 # Import PyTorch modules for distributed data handling and multiprocessing
 import torch.utils.data.distributed
@@ -98,7 +98,7 @@ def load_ckpt(config, model, checkpoint_dir="./checkpoints", ckpt_type="best"):
     print("Loaded weights from {0}".format(checkpoint))
     return model
 
-def main_worker(gpu, ngpus_per_node, config):
+def main_worker(gpu, ngpus_per_node, config, eval_config):
     """
     Main function to set up and start training on a specific GPU.
 
@@ -130,7 +130,11 @@ def main_worker(gpu, ngpus_per_node, config):
 
         # Create training and testing dataloaders
         train_loader = MixedARTKITTINYU(config, "train").data
-        test_loader = MixedARTKITTINYU(config, "online_eval").data
+        test_loader = DepthDataLoader(eval_config, 'online_eval').data
+        
+        # Printing Trainloader and test loader information
+        print(f"Trainloader length: {len(train_loader)}")
+        print(f"Testloader length: {len(test_loader)}")
 
         # Get the trainer based on the config and initialize it with model and dataloaders
         trainer = get_trainer(config)(
@@ -164,60 +168,62 @@ if __name__ == '__main__':
         overwrite_kwargs["trainer"] = args.trainer
 
     # Load configuration based on model, mode, and dataset arguments
-    config = get_config(args.model, "train", args.dataset, **overwrite_kwargs)
+    base_config = get_config(args.model, "train", args.dataset, **overwrite_kwargs)
+    train_config = base_config
+    eval_config = get_config(args.model, "eval", 'art', **overwrite_kwargs)
 
     # Initialize a shared dictionary if specified in the config for multiprocessing
-    if config.use_shared_dict:
+    if train_config.use_shared_dict:
         shared_dict = mp.Manager().dict()
     else:
         shared_dict = None
-    config.shared_dict = shared_dict
+    train_config.shared_dict = shared_dict
 
     # Set additional configurations
-    config.batch_size = config.bs  # Set batch size from config
-    config.mode = 'train'          # Set mode to 'train'
+    train_config.batch_size = train_config.bs  # Set batch size from config
+    train_config.mode = 'train'          # Set mode to 'train'
 
     # Ensure the root directory exists, create it if necessary
-    if config.root != "." and not os.path.isdir(config.root):
-        os.makedirs(config.root)
+    if train_config.root != "." and not os.path.isdir(train_config.root):
+        os.makedirs(train_config.root)
 
     # Try to configure distributed settings using SLURM environment variables
     try:
         node_str = os.environ['SLURM_JOB_NODELIST'].replace('[', '').replace(']', '')
         nodes = node_str.split(',')
 
-        config.world_size = len(nodes)  # Total number of nodes in SLURM job
-        config.rank = int(os.environ['SLURM_PROCID'])  # Rank of the current process
+        train_config.world_size = len(nodes)  # Total number of nodes in SLURM job
+        train_config.rank = int(os.environ['SLURM_PROCID'])  # Rank of the current process
     except KeyError:
         # If SLURM is not being used, default to a single-node setup
-        config.world_size = 1
-        config.rank = 0
+        train_config.world_size = 1
+        train_config.rank = 0
         nodes = ["127.0.0.1"]
 
     # Set up distributed training if enabled in config
-    if config.distributed:
+    if train_config.distributed:
         port = np.random.randint(15000, 15025)  # Random port for distributed communication
-        config.dist_url = f'tcp://{nodes[0]}:{port}'
-        config.dist_backend = 'nccl'  # Use NCCL backend for GPU communication
-        config.gpu = None
+        train_config.dist_url = f'tcp://{nodes[0]}:{port}'
+        train_config.dist_backend = 'nccl'  # Use NCCL backend for GPU communication
+        train_config.gpu = None
 
     # Determine the number of GPUs available on this node
     ngpus_per_node = torch.cuda.device_count()
-    config.num_workers = config.workers  # Set number of data loading workers
-    config.ngpus_per_node = ngpus_per_node
+    train_config.num_workers = train_config.workers  # Set number of data loading workers
+    train_config.ngpus_per_node = ngpus_per_node
 
     # Print the final configuration for verification
     print("Config:")
-    pprint(config)
+    pprint(train_config)
 
-    if config.distributed:
+    if train_config.distributed:
         # In distributed mode, calculate the total world size across all nodes
-        config.world_size = ngpus_per_node * config.world_size
+        train_config.world_size = ngpus_per_node * train_config.world_size
 
         # Spawn a separate process for each GPU on the node for distributed training
-        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, config))
+        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, train_config))
     else:
         # For non-distributed mode, if only one GPU, set GPU ID to 0
         if ngpus_per_node == 1:
-            config.gpu = 0
-        main_worker(config.gpu, ngpus_per_node, config)
+            train_config.gpu = 0
+        main_worker(train_config.gpu, ngpus_per_node, train_config, eval_config)

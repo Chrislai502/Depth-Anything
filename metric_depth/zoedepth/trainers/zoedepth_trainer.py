@@ -23,7 +23,8 @@
 # File author: Shariq Farooq Bhat
 
 import torch
-import torch.cuda.amp as amp
+# import torch.cuda.amp as amp # Depricated
+import torch.amp as amp
 import torch.nn as nn
 
 from zoedepth.trainers.loss import GradL1Loss, SILogLoss
@@ -43,7 +44,7 @@ class Trainer(BaseTrainer):
         self.device = device
         self.silog_loss = SILogLoss()
         self.grad_loss = GradL1Loss()
-        self.scaler = amp.GradScaler(enabled=self.config.use_amp)
+        self.scaler = amp.GradScaler('cuda', enabled=self.config.use_amp)
 
     def train_on_batch(self, batch, train_step):
         """
@@ -61,7 +62,7 @@ class Trainer(BaseTrainer):
 
         losses = {}
 
-        with amp.autocast(enabled=self.config.use_amp):
+        with amp.autocast('cuda', enabled=self.config.use_amp):
 
             output = self.model(images)
             pred_depths = output['metric_depth']
@@ -105,7 +106,7 @@ class Trainer(BaseTrainer):
     
     @torch.no_grad()
     def eval_infer(self, x):
-        with amp.autocast(enabled=self.config.use_amp):
+        with amp.autocast('cuda', enabled=self.config.use_amp):
             m = self.model.module if self.config.multigpu else self.model
             pred_depths = m(x)['metric_depth']
         return pred_depths
@@ -162,9 +163,13 @@ class Trainer(BaseTrainer):
             pred_depths = self.eval_infer(images)
         pred_depths = pred_depths.squeeze().unsqueeze(0).unsqueeze(0)
 
-        with amp.autocast(enabled=self.config.use_amp):
+        with amp.autocast('cuda', enabled=self.config.use_amp):
             l_depth = self.silog_loss(
                 pred_depths, depths_gt, mask=mask.to(torch.bool), interpolate=True)
+
+        # If ground truth and prediction sizes do not match, and interpolation is requested, interpolate prediction
+        if depths_gt.shape[-2:] != pred_depths.shape[-2:]:
+            pred_depths = nn.functional.interpolate(pred_depths, depths_gt.shape[-2:], mode='bilinear', align_corners=True)
 
         metrics = compute_metrics(depths_gt, pred_depths, **self.config)
         losses = {f"{self.silog_loss.name}": l_depth.item()}
@@ -172,6 +177,7 @@ class Trainer(BaseTrainer):
         if val_step == 1 and self.should_log:
             depths_gt[torch.logical_not(mask)] = -99
             self.log_images(rgb={"Input": images[0]}, depth={"GT": depths_gt[0], "PredictedMono": pred_depths[0]}, prefix="Test",
+                            # scalar_cmap="magma_r",
                             min_depth=DATASETS_CONFIG[dataset]['min_depth'], max_depth=DATASETS_CONFIG[dataset]['max_depth'])
 
         return metrics, losses

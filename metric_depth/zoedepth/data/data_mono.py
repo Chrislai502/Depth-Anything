@@ -299,21 +299,25 @@ class MixedARTKITTINYU(object):
         config.workers = config.workers // 2
         self.config = config
         conf_list = {}
-        for k in sample_ratio.keys():
-            conf_list[k] = change_dataset(edict(config), k)
         
+        for k in sample_ratio.keys():
+            conf_list[k] = change_dataset(edict(config), k) # This is not working for the ART Dataset. 
+            # How is Kitti fine not squished during training??
+            # When does the Resizing of Kitti Happens??
+
         # Testing Dataset
-        art_test_conf = change_dataset(edict(config), 'art_test')
+        art_test_conf = change_dataset(edict(config), 'art')
 
         # Make art_track2 default for testing
         self.config = config = art_test_conf
-        img_size = self.config.get("img_size", None)
-        img_size = img_size if self.config.get("do_input_resize", False) else None
+        # img_size = self.config.get("img_size", None)
+        # img_size = img_size if self.config.get("do_input_resize", False) else None
+        # print(f"img_size: {img_size}")
         
         if mode == 'train':
             dataloaders = {}
             for dataset_type, conf in conf_list.items():
-                dataloaders[dataset_type] = DepthDataLoader(conf, mode, device=device, transform=preprocessing_transforms(mode, size=img_size)).data
+                dataloaders[dataset_type] = DepthDataLoader(conf, mode, device=device).data
     
             # Ratio Aware Dataloader
             self.data = SampleRatioAwareDataLoader(dataloaders, ratios=sample_ratio)
@@ -461,6 +465,12 @@ class DataLoadPreprocess(Dataset):
 
             # Load image and depth data
             image = self.reader.open(image_path)
+            try:
+                depth_gt = self.reader.open(depth_path)
+                has_valid_depth = True
+            except IOError:
+                print("Depth file not found for image: ", depth_path)
+                has_valid_depth = False
             depth_gt = self.reader.open(depth_path)
             w, h = image.size  # Get original dimensions of the image
 
@@ -547,22 +557,24 @@ class DataLoadPreprocess(Dataset):
 
 
         # Apply Art dataset-specific cropping.
+        
         if self.config.dataset == 'art' and self.config.do_art_crop and has_valid_depth:
             height, width, _ = image.shape
             bottom_margin = self.crop_bound // 2
             top_margin = height - bottom_margin
             # Crop both image and depth ground truth
-            depth_gt = depth_gt[bottom_margin:top_margin, :, :] 
-            image = image[bottom_margin:top_margin, :, :]
+            depth_gt = depth_gt[bottom_margin:top_margin, ...] 
+            image = image[bottom_margin:top_margin, ...]
+            mask = mask[:, bottom_margin:top_margin, ...]
+            
         
         if self.mode == 'train':
-            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'mask': mask, **sample}
+            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'mask': mask, **sample} # NOT SURE HOW TRAINER HANDLES INVALID SAMPLES
         else:
             sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth, 'mask': mask}
-        
-        if not sample['has_valid_depth'] or isinstance(sample["mask"], int):
-            return {'image': False, 'depth': False, 'focal': False, 'has_valid_depth': False, 'mask': False}
-            
+            if not sample['has_valid_depth'] or isinstance(sample["mask"], int):
+                return {'image': False, 'depth': False, 'focal': False, 'has_valid_depth': False, 'mask': False}
+                
         sample = self.postprocess(sample)
         sample['dataset'] = self.config.dataset
         sample = {**sample, 'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1]}
