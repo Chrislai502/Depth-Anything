@@ -229,7 +229,8 @@ def compute_metrics_and_save(img, i, gt, pred, interpolate=True, garg_crop=False
             eval_mask = np.ones(valid_mask.shape)
     
     # import os
-    path = "/home/art-chris/testing/depth_anything/Depth-Anything/metric_depth/output/temp"
+    path = "/home/art/Depth-Anything/metric_depth/output/temp"
+    os.makedirs(path, exist_ok=True)
     # Apply the valid mask to ground truth depth and prediction depth for visualization
     # masked_gt = np.where(valid_mask, gt_depth, np.nan)  # Set invalid areas to NaN for visual clarity
     # masked_pred = np.where(valid_mask, pred, 0)

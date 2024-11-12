@@ -49,7 +49,7 @@ from .ibims import get_ibims_loader
 from .sun_rgbd_loader import get_sunrgbd_loader
 from .vkitti import get_vkitti_loader
 from .vkitti2 import get_vkitti2_loader
-from .art import get_art_loader
+# from .art import get_art_loader
 
 from .preprocess import CropParams, get_white_border, get_black_border
 
@@ -175,8 +175,6 @@ class DepthDataLoader(object):
         else:
             print(
                 'mode should be one of \'train, test, online_eval\'. Got {}'.format(mode))
-
-
 
 class RepetitiveRoundRobinDataLoader(object):
     def __init__(self, *dataloaders):
@@ -527,13 +525,20 @@ class DataLoadPreprocess(Dataset):
 
         else:
             # Loading for online evaluation or inference
-            data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
+            if self.config.dataset == 'art':
+                path = os.path.join(self.config.data_path_eval, self.config.track, self.config.bag)
+                data_path = path if self.mode == 'online_eval' else self.config.data_path
+            else:
+                data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
             image_path = os.path.join(data_path, remove_leading_slash(sample_path.split()[0]))
             image = np.asarray(self.reader.open(image_path), dtype=np.float32) / 255.0
 
             # For online evaluation, load depth data if available
             if self.mode == 'online_eval':
-                gt_path = self.config.gt_path_eval
+                if self.config.dataset == 'art':
+                    gt_path = os.path.join(self.config.gt_path_eval, self.config.track, self.config.bag)
+                else:
+                    gt_path = self.config.gt_path_eval
                 depth_path = os.path.join(gt_path, remove_leading_slash(sample_path.split()[1]))
                 try:
                     depth_gt = self.reader.open(depth_path)
@@ -541,6 +546,7 @@ class DataLoadPreprocess(Dataset):
                 except IOError:
                     depth_gt = None
                     has_valid_depth = False
+                    print(f"Depth ground truth not found for {depth_path}")
 
                 # Process depth ground truth if valid
                 if has_valid_depth:
@@ -661,8 +667,11 @@ class ToTensor(object):
         else:
             has_valid_depth = sample['has_valid_depth']
             image = self.resize(image)
-            return {**sample, 'image': image, 'depth': depth, 'focal': focal, 'has_valid_depth': has_valid_depth,
-                    'image_path': sample['image_path'], 'depth_path': sample['depth_path']}
+            # print("DEBUG: ", sample.keys(), " MODE: ", self.mode)
+            return {**sample, 'image': image, 'depth': depth, 'focal': focal}
+
+            # return {**sample, 'image': image, 'depth': depth, 'focal': focal, 'has_valid_depth': has_valid_depth,
+            #         'image_path': sample['image_path'], 'depth_path': sample['depth_path']}
 
     def to_tensor(self, pic):
         if not (_is_pil_image(pic) or _is_numpy_image(pic)):
