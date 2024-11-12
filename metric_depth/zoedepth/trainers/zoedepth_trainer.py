@@ -177,7 +177,7 @@ class Trainer(BaseTrainer):
         if val_step == 1 and self.should_log:
             depths_gt[torch.logical_not(mask)] = -99
             self.log_images(rgb={"Input": images[0]}, depth={"GT": depths_gt[0], "PredictedMono": pred_depths[0]}, prefix="Test",
-                            # scalar_cmap="magma_r",
+                            scalar_cmap="magma_r",
                             min_depth=DATASETS_CONFIG[dataset]['min_depth'], max_depth=DATASETS_CONFIG[dataset]['max_depth'])
 
         return metrics, losses

@@ -469,9 +469,9 @@ class DataLoadPreprocess(Dataset):
                 depth_gt = self.reader.open(depth_path)
                 has_valid_depth = True
             except IOError:
+                depth_gt = False
                 print("Depth file not found for image: ", depth_path)
                 has_valid_depth = False
-            depth_gt = self.reader.open(depth_path)
             w, h = image.size  # Get original dimensions of the image
 
             # Apply KITTI-specific cropping if enabled

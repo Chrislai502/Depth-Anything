@@ -286,7 +286,7 @@ class BaseTrainer:
                 "epoch": self.epoch
             }, fpath)
 
-    def log_images(self, rgb: Dict[str, list] = {}, depth: Dict[str, list] = {}, scalar_field: Dict[str, list] = {}, prefix="", scalar_cmap="jet", min_depth=None, max_depth=None):
+    def log_images(self, rgb: Dict[str, list] = {}, depth: Dict[str, list] = {}, scalar_field: Dict[str, list] = {}, prefix="", scalar_cmap="magma_r", min_depth=None, max_depth=None):
         if not self.should_log:
             return
 
@@ -298,7 +298,7 @@ class BaseTrainer:
                 min_depth = None
                 max_depth = None
 
-        depth = {k: colorize(v, vmin=min_depth, vmax=max_depth)
+        depth = {k: colorize(v, vmin=min_depth, vmax=max_depth, cmap=scalar_cmap)
                  for k, v in depth.items()}
         scalar_field = {k: colorize(
             v, vmin=None, vmax=None, cmap=scalar_cmap) for k, v in scalar_field.items()}
