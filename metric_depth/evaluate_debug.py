@@ -57,6 +57,7 @@ image_saving_time = 0
 global_timer_compute_errors = 0
 global_timer_colorize = 0
 global_timer_metrics_calculation = 0
+# global_timer_image_saving = 0
 
 
 def compute_errors(gt, pred):
@@ -128,7 +129,7 @@ def compute_errors_2d(img, i, gt, pred, valid_mask=None, save_err_img=False, pat
     start_time = time.time()
 
 
-    # Mask invalid regions in gt and pred (THIS TAKES 2 SECONDS...)
+    # Mask invalid regions in gt and pred
     gt_filtered = np.where(valid_mask, gt, np.nan)  # Set invalid areas to NaN for visual clarity
     pred_filtered = np.where(valid_mask, pred, 0)
     global_timer_compute_errors += time.time() - start_time
@@ -185,6 +186,7 @@ def compute_errors_2d(img, i, gt, pred, valid_mask=None, save_err_img=False, pat
         abs_rel_img[~valid_mask] = color_map_img[~valid_mask]
 
         # Vertical Stack the images
+        # valid_mask = colorize3D(valid_mask, 0, 1, cmap='gray')
         delta_img = np.vstack([img, abs_rel_img, delta_img])
 
         Image.fromarray(delta_img).save(os.path.join(path, f"{i}_delta_img.png"))
@@ -198,6 +200,9 @@ def compute_errors_2d(img, i, gt, pred, valid_mask=None, save_err_img=False, pat
 def compute_metrics_and_save(img, i, gt, pred, interpolate=True, garg_crop=False, eigen_crop=True, dataset='nyu', min_depth_eval=0.1, max_depth_eval=10, **kwargs):
     """Compute metrics of predicted depth maps. Applies cropping and masking as necessary or specified via arguments. Refer to compute_errors for more details on metrics.
     """
+    global global_timer_compute_errors
+
+    start_time = time.time()
 
     if 'config' in kwargs:
         config = kwargs['config']
@@ -245,7 +250,7 @@ def compute_metrics_and_save(img, i, gt, pred, interpolate=True, garg_crop=False
                 eval_mask[45:471, 41:601] = 1
         else:
             eval_mask = np.ones(valid_mask.shape)
-    
+    global_timer_compute_errors += time.time() - start_time
     return compute_errors_2d(
         img, i, gt_depth, pred, 
         valid_mask, save_err_img=True, path=kwargs['path'] if 'path' in kwargs else None, 
@@ -270,11 +275,11 @@ def infer(model, images, **kwargs):
     pred1 = model(images, **kwargs)
     pred1 = get_depth_from_prediction(pred1)
 
-    pred2 = model(torch.flip(images, [3]), **kwargs)
-    pred2 = get_depth_from_prediction(pred2)
-    pred2 = torch.flip(pred2, [3])
+    # pred2 = model(torch.flip(images, [3]), **kwargs)
+    # pred2 = get_depth_from_prediction(pred2)
+    # pred2 = torch.flip(pred2, [3])
 
-    mean_pred = 0.5 * (pred1 + pred2)
+    mean_pred = pred1#0.5 * (pred1 + pred2)
 
     global inference_time
     inference_time += time.time() - start_time  # Accumulate inference time
@@ -300,6 +305,9 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
     # Dataset Root Directory
 
     for i, sample in tqdm(enumerate(test_loader), total=len(test_loader)):
+        # Data loading timing
+        load_start_time = time.time()
+
         if 'has_valid_depth' in sample:
             if not sample['has_valid_depth']:
                 continue
@@ -309,9 +317,15 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
         
         image, depth = image.cuda(), depth.cuda()
         depth = depth.squeeze().unsqueeze(0).unsqueeze(0)
-        focal = sample.get('focal', torch.Tensor(
-            [715.0873]).cuda())  # This magic number (focal) is only used for evaluating BTS model
+        focal = sample.get('focal', torch.Tensor([715.0873]).cuda())  # This magic number (focal) is only used for evaluating BTS model
+
+        data_loading_time += time.time() - load_start_time
+
+        # Inference timing
         pred = infer(model, image, dataset=sample['dataset'][0], focal=focal)
+
+        # Post-processing timing
+        post_process_start_time = time.time()
 
         if "save_images" in config and config.save_images:
 
@@ -322,6 +336,8 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
         else:
             curr_metrics = compute_metrics(depth, pred, config=config)
         
+        post_processing_time += time.time() - post_process_start_time
+
         metrics.update(curr_metrics)
         if counter == 10:
             break
@@ -350,7 +366,12 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
 def main(config):
     model = build_model(config)
     
+    # Data loader timing
+    start_time = time.time()
     test_loader = DepthDataLoader(config, 'online_eval').data
+    global data_loading_time
+    data_loading_time += time.time() - start_time  # Initial data loader setup time
+    
     model = model.cuda()
     metrics = evaluate(model, test_loader, config)
     print(f"{colors.fg.green}")
@@ -358,6 +379,7 @@ def main(config):
     print(f"{colors.reset}")
     metrics['#params'] = f"{round(count_parameters(model, include_all=True)/1e6, 2)}M"
     return metrics
+
 
 
 def eval_model(model_name, pretrained_resource, dataset='nyu', **kwargs):

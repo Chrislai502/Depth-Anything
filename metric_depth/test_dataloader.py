@@ -82,9 +82,11 @@ if __name__ == '__main__':
 
     # Load configuration
     config = get_config(args.model, "train", args.dataset)
+    config = get_config(args.model, "eval", args.dataset)
     config.batch_size = args.batch_size
     config.num_workers = args.num_workers
     config.mode = 'train'  # Ensure mode is set to 'train'
+    config.mode = 'eval'
 
     # Test MixedNYUKITTI
     # test_data_loading(config, MixedNYUKITTI, mode="train")

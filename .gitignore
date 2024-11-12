@@ -13,6 +13,7 @@ data
 *.pth
 output
 wandb
+*.mp4
 
 ## PyTorch
 

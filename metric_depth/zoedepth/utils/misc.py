@@ -152,6 +152,65 @@ def colorize(value, vmin=None, vmax=None, cmap='gray_r', invalid_val=-99, invali
     return img
 
 
+def colorize3D(value, vmin=None, vmax=None, cmap='gray_r', invalid_val=-99, invalid_mask=None, background_color=(128, 128, 128), gamma_corrected=False, value_transform=None):
+    """Converts a depth map to a color image with RGB channels.
+
+    Args:
+        value (torch.Tensor, numpy.ndarray): Input depth map. Shape: (H, W) or (1, H, W) or (1, 1, H, W). All singular dimensions are squeezed.
+        vmin (float, optional): vmin-valued entries are mapped to the start color of cmap. If None, value.min() is used. Defaults to None.
+        vmax (float, optional): vmax-valued entries are mapped to the end color of cmap. If None, value.max() is used. Defaults to None.
+        cmap (str, optional): matplotlib colormap to use. Defaults to 'magma_r'.
+        invalid_val (int, optional): Specifies value of invalid pixels that should be colored as 'background_color'. Defaults to -99.
+        invalid_mask (numpy.ndarray, optional): Boolean mask for invalid regions. Defaults to None.
+        background_color (tuple[int], optional): 3-tuple RGB color to give to invalid pixels. Defaults to (128, 128, 128).
+        gamma_corrected (bool, optional): Apply gamma correction to colored image. Defaults to False.
+        value_transform (Callable, optional): Apply transform function to valid pixels before coloring. Defaults to None.
+
+    Returns:
+        numpy.ndarray, dtype - uint8: Colored depth map. Shape: (H, W, 3)
+    """
+    # Convert to numpy if the input is a torch tensor
+    if isinstance(value, torch.Tensor):
+        value = value.detach().cpu().numpy()
+
+    value = value.squeeze()  # Remove any singleton dimensions
+    if invalid_mask is None:
+        invalid_mask = value == invalid_val  # Create invalid mask if not provided
+    mask = np.logical_not(invalid_mask)  # Invert mask to get valid pixels
+
+    # Normalize the valid values to the range [0, 1]
+    vmin = np.percentile(value[mask], 2) if vmin is None else vmin
+    vmax = np.percentile(value[mask], 85) if vmax is None else vmax
+    if vmin != vmax:
+        value = (value - vmin) / (vmax - vmin)  # Scale between vmin and vmax
+    else:
+        value = value * 0.  # If vmin == vmax, set all values to 0 to avoid division by zero
+
+    # Apply any custom transformation on valid pixels if provided
+    if value_transform:
+        value = value_transform(value)
+
+    # Set invalid pixels to NaN so they will be ignored in color mapping
+    value[invalid_mask] = np.nan
+
+    # Apply colormap and convert to uint8, with shape (H, W, 4)
+    cmapper = matplotlib.cm.get_cmap(cmap)
+    color_mapped = cmapper(value, bytes=True)  # The result is (H, W, 4), including an alpha channel
+
+    # Extract only the RGB channels, discarding the alpha channel
+    img = color_mapped[..., :3]
+
+    # Set the background color for invalid pixels
+    img[invalid_mask] = background_color
+
+    # Apply gamma correction if needed
+    if gamma_corrected:
+        img = img / 255.0  # Normalize to [0, 1] for gamma correction
+        img = np.power(img, 2.2)  # Apply gamma correction
+        img = (img * 255).astype(np.uint8)  # Scale back to [0, 255] and convert to uint8
+
+    return img
+
 def count_parameters(model, include_all=False):
     return sum(p.numel() for p in model.parameters() if p.requires_grad or include_all)
 

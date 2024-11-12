@@ -153,8 +153,7 @@ class DepthDataLoader(object):
                                    sampler=self.train_sampler)
 
         elif mode == 'online_eval':
-            self.testing_samples = DataLoadPreprocess(
-                config, mode, transform=transform)
+            self.testing_samples = DataLoadPreprocess(config, mode, transform=transform)
             if config.distributed:  # redundant. here only for readability and to be more explicit
                 # Give whole test set to all processes (and report evaluation only on one) regardless
                 self.eval_sampler = None
@@ -167,8 +166,7 @@ class DepthDataLoader(object):
                                    sampler=self.eval_sampler)
 
         elif mode == 'test':
-            self.testing_samples = DataLoadPreprocess(
-                config, mode, transform=transform)
+            self.testing_samples = DataLoadPreprocess(config, mode, transform=transform)
             self.data = DataLoader(self.testing_samples,
                                    1, shuffle=kwargs.get("shuffle", False), num_workers=1)
 
@@ -443,7 +441,8 @@ class DataLoadPreprocess(Dataset):
         sample_path = self.filenames[idx]
         focal = float(sample_path.split()[2])  # Parse the focal length from the path
         sample = {}  # Initialize an empty dictionary to store the sample data
-
+        # print("HERE IS THE SAMPLE PATH", sample_path, sample_path.split())
+        
         # Check if we are in training mode
         if self.mode == 'train':
             # Determine the image and depth paths based on dataset and configuration settings
@@ -452,9 +451,10 @@ class DataLoadPreprocess(Dataset):
                 image_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[3]))
                 depth_path = os.path.join(self.config.gt_path, remove_leading_slash(sample_path.split()[4]))
             elif self.config.dataset == 'art':
-                path = os.path.join(self.config.data_path, self.config.track, self.config.bag)
-                image_path = os.path.join(path, remove_leading_slash(sample_path.split()[0]))
-                depth_path = os.path.join(path, remove_leading_slash(sample_path.split()[1]))
+                image_path = os.path.join(self.config.data_path, self.config.track, self.config.bag)
+                depth_path = os.path.join(self.config.gt_path, self.config.track, self.config.bag)
+                image_path = os.path.join(image_path, remove_leading_slash(sample_path.split()[0]))
+                depth_path = os.path.join(depth_path, remove_leading_slash(sample_path.split()[1]))
             else:
                 # Standard case (left images)
                 image_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[0]))
@@ -527,13 +527,20 @@ class DataLoadPreprocess(Dataset):
 
         else:
             # Loading for online evaluation or inference
-            data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
+            if self.config.dataset == 'art':
+                data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
+                data_path = os.path.join(data_path, self.config.track, self.config.bag)
+            else:
+                data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
             image_path = os.path.join(data_path, remove_leading_slash(sample_path.split()[0]))
-            image = np.asarray(self.reader.open(image_path), dtype=np.float32) / 255.0
+            image = self.reader.open(image_path)
 
             # For online evaluation, load depth data if available
             if self.mode == 'online_eval':
-                gt_path = self.config.gt_path_eval
+                if self.config.dataset == 'art':
+                    gt_path = os.path.join(self.config.gt_path_eval, self.config.track, self.config.bag)
+                else:
+                    gt_path = self.config.gt_path_eval
                 depth_path = os.path.join(gt_path, remove_leading_slash(sample_path.split()[1]))
                 try:
                     depth_gt = self.reader.open(depth_path)
@@ -541,24 +548,41 @@ class DataLoadPreprocess(Dataset):
                 except IOError:
                     depth_gt = None
                     has_valid_depth = False
+                    print("No depth available for {}".format(depth_path))
+            
+            # Apply Art dataset-specific cropping if 
+            if self.config.dataset == 'art' and self.config.do_art_crop and has_valid_depth:
+                height = image.height
+                width = image.width
+                top_margin = int((height - self.crop_bound) / 2)
+                bottom_margin = height - top_margin
+                # Crop both image and depth ground truth
+                depth_gt = depth_gt.crop((0, top_margin, width, bottom_margin))
+                image = image.crop((0, top_margin, width, bottom_margin))
 
-                # Process depth ground truth if valid
-                if has_valid_depth:
-                    depth_gt = np.asarray(depth_gt, dtype=np.float32)
-                    depth_gt = np.expand_dims(depth_gt, axis=2)
-                    depth_gt /= (1000.0 if self.config.dataset == 'nyu' else 256.0)
-                    mask = np.logical_and(depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
+            # Process depth ground truth if valid
+            if has_valid_depth:
+                depth_gt = np.asarray(depth_gt, dtype=np.float32)
+                depth_gt = np.expand_dims(depth_gt, axis=2)
+                depth_gt /= (1000.0 if self.config.dataset == 'nyu' else 256.0)
+                mask = np.logical_and(depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
+
+            image = np.asarray(image, dtype=np.float32) / 255.0
 
             sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth, 'mask': mask}
-        
-        # Post-processing, transformations, and sample completion
-        if self.transform:
-            sample = self.transform(sample)
+            # print("FLAG 9")
 
+        # Post-processing, transformations, and sample completion
+        # print("FLAG 10")
+        # print(self.transform)
+        # if self.transform:
+        #     sample = self.transform(sample)
+        # print("HERE IS THE SAMPLE PATH2", sample_path, sample_path.split())
         sample = self.postprocess(sample)
         sample['dataset'] = self.config.dataset
         sample = {**sample, 'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1]}
-
+        if self.transform:
+            sample = self.transform(sample)
         return sample
 
     def rotate_image(self, image, angle, flag=Image.BILINEAR):
