@@ -1,2 +1,2 @@
-python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4
+python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4
 python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4 --dataset art

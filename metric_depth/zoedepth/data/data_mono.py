@@ -531,7 +531,7 @@ class DataLoadPreprocess(Dataset):
             else:
                 data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
             image_path = os.path.join(data_path, remove_leading_slash(sample_path.split()[0]))
-            image = self.reader.open(image_path)
+            image = np.asarray(self.reader.open(image_path), dtype=np.float32) / 255.0
 
             # For online evaluation, load depth data if available
             if self.mode == 'online_eval':
