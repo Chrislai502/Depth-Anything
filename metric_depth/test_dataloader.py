@@ -73,7 +73,7 @@ if __name__ == '__main__':
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Test data loading for MixedARTKITTINYU datasets.")
-    parser.add_argument("-m", "--model", type=str, default="synunet", help="Model name (default: synunet)")
+    parser.add_argument("-m", "--model", type=str, default="zoedepth", help="Model name (default: synunet)")
     parser.add_argument("-d", "--dataset", type=str, default='mix', help="Dataset name (default: mix)")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for testing (default: 4)")
     parser.add_argument("--num_workers", type=int, default=2, help="Number of workers for data loading (default: 2)")

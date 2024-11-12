@@ -205,7 +205,6 @@ def compute_metrics_and_save(img, i, gt, pred, interpolate=True, garg_crop=False
         eigen_crop = config.eigen_crop
         min_depth_eval = config.min_depth_eval
         max_depth_eval = config.max_depth_eval
-        # max_depth_eval = 300
         # print("MAX DEPTH EVAL: ", max_depth_eval)
 
     # If ground truth and prediction sizes do not match, and interpolation is requested, interpolate prediction
@@ -324,8 +323,8 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
             curr_metrics = compute_metrics(depth, pred, config=config)
         
         metrics.update(curr_metrics)
-        if counter == 10:
-            break
+        # if counter == 10:
+        #     break
         counter += 1
 
     # Print timing summary after evaluation

@@ -440,8 +440,8 @@ class DataLoadPreprocess(Dataset):
         focal = float(sample_path.split()[2])  # Parse the focal length from the path
         sample = {}  # Initialize an empty dictionary to store the sample data
         mask = False # Default if no mask exists
-        # print("HERE IS THE SAMPLE PATH", sample_path, sample_path.split())
-        
+        has_valid_depth = False 
+
         # Check if we are in training mode
         if self.mode == 'train':
             # Determine the image and depth paths based on dataset and configuration settings
@@ -472,16 +472,6 @@ class DataLoadPreprocess(Dataset):
                 # Crop both image and depth ground truth
                 depth_gt = depth_gt.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
                 image = image.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
-
-            # Apply Art dataset-specific cropping if enabled
-            if self.config.do_art_crop:
-                height = image.height
-                width = image.width
-                top_margin = int((height - self.crop_bound) / 2)
-                bottom_margin = height - top_margin
-                # Crop both image and depth ground truth
-                depth_gt = depth_gt.crop((0, top_margin, width, bottom_margin))
-                image = image.crop((0, top_margin, width, bottom_margin))
 
             # Handle boundaries in the NYU dataset
             if self.config.dataset == 'nyu' and self.config.avoid_boundary:
@@ -522,7 +512,6 @@ class DataLoadPreprocess(Dataset):
             # Additional preprocessing for training
             image, depth_gt = self.train_preprocess(image, depth_gt)
             mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
-            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'mask': mask, **sample}
 
         else:
             # Loading for online evaluation or inference
@@ -549,16 +538,6 @@ class DataLoadPreprocess(Dataset):
                     has_valid_depth = False
                     # print("No depth available for {}".format(depth_path))
             
-            # Apply Art dataset-specific cropping if 
-            if self.config.dataset == 'art' and self.config.do_art_crop and has_valid_depth:
-                height = image.height
-                width = image.width
-                top_margin = int((height - self.crop_bound) / 2)
-                bottom_margin = height - top_margin
-                # Crop both image and depth ground truth
-                depth_gt = depth_gt.crop((0, top_margin, width, bottom_margin))
-                image = image.crop((0, top_margin, width, bottom_margin))
-
             # Process depth ground truth if valid
             if has_valid_depth:
                 depth_gt = np.asarray(depth_gt, dtype=np.float32)
@@ -566,13 +545,24 @@ class DataLoadPreprocess(Dataset):
                 depth_gt /= (1000.0 if self.config.dataset == 'nyu' else 256.0)
                 mask = np.logical_and(depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
 
-            image = np.asarray(image, dtype=np.float32) / 255.0
 
+        # Apply Art dataset-specific cropping.
+        if self.config.dataset == 'art' and self.config.do_art_crop and has_valid_depth:
+            height, width, _ = image.shape
+            bottom_margin = self.crop_bound // 2
+            top_margin = height - bottom_margin
+            # Crop both image and depth ground truth
+            depth_gt = depth_gt[bottom_margin:top_margin, :, :] 
+            image = image[bottom_margin:top_margin, :, :]
+        
+        if self.mode == 'train':
+            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'mask': mask, **sample}
+        else:
             sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth, 'mask': mask}
-            # print("FLAG 9")
-
+        
         if not sample['has_valid_depth'] or isinstance(sample["mask"], int):
             return {'image': False, 'depth': False, 'focal': False, 'has_valid_depth': False, 'mask': False}
+            
         sample = self.postprocess(sample)
         sample['dataset'] = self.config.dataset
         sample = {**sample, 'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1]}

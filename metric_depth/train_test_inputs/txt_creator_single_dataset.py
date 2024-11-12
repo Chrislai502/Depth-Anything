@@ -2,7 +2,7 @@ import os
 from tqdm import tqdm
 
 # Define dataset path and type
-dataset_path = "/home/art-chris/testing/depth_anything/Depth-Anything/metric_depth/data/ART/"
+dataset_path = "/home/art/Depth-Anything/metric_depth/data/ART/"
 track = "IMS"
 bag = "rosbag2_2024_09_04-13_17_48_9"
 train_eval = "eval" # or "eval"

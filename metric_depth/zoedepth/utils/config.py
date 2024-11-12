@@ -64,38 +64,11 @@ DATASETS_CONFIG = {
         "filenames_file_eval": "./train_test_inputs/art_eval_filenames.txt",
 
         "min_depth_eval": 1e-3,
-        "max_depth_eval": 110.0,
+        "max_depth_eval": 120.0,
 
         "do_random_rotate": True,
         "degree": 1.0,
-        "crop_bound": 300,
-        "do_art_crop": True,
-        "do_kb_crop": False,
-        "garg_crop": False,
-        "eigen_crop": False,
-        "use_right": False,
-        "shuffle": False # Dataset
-    },
-    "art_test": {
-        "dataset": "art",
-        "track": "IMS",
-        "bag" : "rosbag2_2024_09_04-13_17_48_9",
-        "max_depth": 120.0,
-        "min_depth": 0.01,
-        "data_path": os.path.join(HOME_DIR, "ART/"),
-        "gt_path": os.path.join(HOME_DIR, "ART/"),
-        "filenames_file": "./train_test_inputs/art_eval_filenames.txt",
-        "input_height": 710,
-        "input_width": 1018,  # 704
-        "data_path_eval": os.path.join(HOME_DIR, "ART/"),
-        "gt_path_eval": os.path.join(HOME_DIR, "ART/"),
-        "filenames_file_eval": "./train_test_inputs/art_eval_filenames.txt",
-
-        "min_depth_eval": 1e-3,
-        "max_depth_eval": 120.0,
-        "do_random_rotate": False,
-        "degree": 1.0,
-        "crop_bound": 250,
+        "crop_bound": 550, # Total padding to remove from top & bottom, centered
         "do_art_crop": True,
         "do_kb_crop": False,
         "garg_crop": False,
@@ -471,10 +444,13 @@ def get_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
             new_bin_conf.append(conf)
         config['bin_conf'] = new_bin_conf
 
+    if dataset == "mix":
+        dataset = 'kitti'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
+
     if mode == "train":
         orig_dataset = dataset
-        if dataset == "mix":
-            dataset = 'kitti'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
+        # if dataset == "mix":
+        #     dataset = 'kitti'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
         if dataset is not None:
             config['project'] = f"MonoDepth3-{orig_dataset}"  # Set project for wandb
 
