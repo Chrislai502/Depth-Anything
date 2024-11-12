@@ -306,7 +306,7 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
                 continue
         image, depth = sample['image'], sample['depth']
         if "save_images" in config and config.save_images:
-            image_cpu = (image.clone().detach().squeeze().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
+            image_cpu = (image.clone().detach().squeeze().numpy().transpose(1, 2, 0) * 255).astype(np.uint8) # This doesn't work
         
         image, depth = image.cuda(), depth.cuda()
         depth = depth.squeeze().unsqueeze(0).unsqueeze(0)
