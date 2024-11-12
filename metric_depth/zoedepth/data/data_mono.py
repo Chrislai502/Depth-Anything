@@ -49,7 +49,7 @@ from .ibims import get_ibims_loader
 from .sun_rgbd_loader import get_sunrgbd_loader
 from .vkitti import get_vkitti_loader
 from .vkitti2 import get_vkitti2_loader
-from .art import get_art_loader
+# from .art import get_art_loader
 
 from .preprocess import CropParams, get_white_border, get_black_border
 
@@ -173,8 +173,6 @@ class DepthDataLoader(object):
         else:
             print(
                 'mode should be one of \'train, test, online_eval\'. Got {}'.format(mode))
-
-
 
 class RepetitiveRoundRobinDataLoader(object):
     def __init__(self, *dataloaders):
@@ -685,8 +683,11 @@ class ToTensor(object):
         else:
             has_valid_depth = sample['has_valid_depth']
             image = self.resize(image)
-            return {**sample, 'image': image, 'depth': depth, 'focal': focal, 'has_valid_depth': has_valid_depth,
-                    'image_path': sample['image_path'], 'depth_path': sample['depth_path']}
+            # print("DEBUG: ", sample.keys(), " MODE: ", self.mode)
+            return {**sample, 'image': image, 'depth': depth, 'focal': focal}
+
+            # return {**sample, 'image': image, 'depth': depth, 'focal': focal, 'has_valid_depth': has_valid_depth,
+            #         'image_path': sample['image_path'], 'depth_path': sample['depth_path']}
 
     def to_tensor(self, pic):
         if not (_is_pil_image(pic) or _is_numpy_image(pic)):

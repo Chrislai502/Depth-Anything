@@ -246,6 +246,7 @@ def compute_metrics_and_save(img, i, gt, pred, interpolate=True, garg_crop=False
         else:
             eval_mask = np.ones(valid_mask.shape)
     
+    
     return compute_errors_2d(
         img, i, gt_depth, pred, 
         valid_mask, save_err_img=True, path=kwargs['path'] if 'path' in kwargs else None, 
