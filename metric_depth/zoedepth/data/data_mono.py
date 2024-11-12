@@ -439,6 +439,7 @@ class DataLoadPreprocess(Dataset):
         sample_path = self.filenames[idx]
         focal = float(sample_path.split()[2])  # Parse the focal length from the path
         sample = {}  # Initialize an empty dictionary to store the sample data
+        mask = False # Default if no mask exists
         # print("HERE IS THE SAMPLE PATH", sample_path, sample_path.split())
         
         # Check if we are in training mode
@@ -544,9 +545,9 @@ class DataLoadPreprocess(Dataset):
                     depth_gt = self.reader.open(depth_path)
                     has_valid_depth = True
                 except IOError:
-                    depth_gt = None
+                    depth_gt = False
                     has_valid_depth = False
-                    print("No depth available for {}".format(depth_path))
+                    # print("No depth available for {}".format(depth_path))
             
             # Apply Art dataset-specific cropping if 
             if self.config.dataset == 'art' and self.config.do_art_crop and has_valid_depth:
@@ -570,12 +571,8 @@ class DataLoadPreprocess(Dataset):
             sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth, 'mask': mask}
             # print("FLAG 9")
 
-        # Post-processing, transformations, and sample completion
-        # print("FLAG 10")
-        # print(self.transform)
-        # if self.transform:
-        #     sample = self.transform(sample)
-        # print("HERE IS THE SAMPLE PATH2", sample_path, sample_path.split())
+        if not sample['has_valid_depth'] or isinstance(sample["mask"], int):
+            return {'image': False, 'depth': False, 'focal': False, 'has_valid_depth': False, 'mask': False}
         sample = self.postprocess(sample)
         sample['dataset'] = self.config.dataset
         sample = {**sample, 'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1]}
