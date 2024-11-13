@@ -323,8 +323,8 @@ def evaluate(model, test_loader, config, round_vals=True, round_precision=3):
             curr_metrics = compute_metrics(depth, pred, config=config)
         
         metrics.update(curr_metrics)
-        if counter == 10:
-            break
+        # if counter == 10:
+        #     break
         counter += 1
 
     # Print timing summary after evaluation

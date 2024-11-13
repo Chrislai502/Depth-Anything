@@ -53,7 +53,7 @@ DATASETS_CONFIG = {
         "track": "IMS",
         "bag" : "rosbag2_2024_09_04-13_17_48_9",
         "min_depth": 0.01,
-        "max_depth": 110.0,
+        "max_depth": 120.0,
         "data_path": os.path.join(HOME_DIR, "ART/"),
         "gt_path": os.path.join(HOME_DIR, "ART/"),
         "filenames_file": "./train_test_inputs/art_train_filenames.txt",
@@ -64,11 +64,11 @@ DATASETS_CONFIG = {
         "filenames_file_eval": "./train_test_inputs/art_eval_filenames.txt",
 
         "min_depth_eval": 1e-3,
-        "max_depth_eval": 110.0,
+        "max_depth_eval": 120.0,
 
         "do_random_rotate": True,
         "degree": 1.0,
-        "crop_bound": 300,
+        "crop_bound": 160,
         "do_art_crop": True,
         "do_kb_crop": False,
         "garg_crop": False,
