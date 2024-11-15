@@ -170,7 +170,7 @@ if __name__ == '__main__':
     # Load configuration based on model, mode, and dataset arguments
     base_config = get_config(args.model, "train", args.dataset, **overwrite_kwargs)
     train_config = base_config
-    eval_config = get_config(args.model, "eval", 'art', **overwrite_kwargs)
+    eval_config = get_config(args.model, "eval", 'art_test', **overwrite_kwargs)
 
     # Initialize a shared dictionary if specified in the config for multiprocessing
     if train_config.use_shared_dict:

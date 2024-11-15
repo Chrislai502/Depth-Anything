@@ -61,14 +61,43 @@ DATASETS_CONFIG = {
         "input_width": 1018,  # 704
         "data_path_eval": os.path.join(HOME_DIR, "ART/"),
         "gt_path_eval": os.path.join(HOME_DIR, "ART/"),
-        "filenames_file_eval": "./train_test_inputs/art_eval_filenames.txt",
+        "filenames_file_eval": "./train_test_inputs/art_eval_KMS_ks_2024_08_24.txt",
 
         "min_depth_eval": 1e-3,
         "max_depth_eval": 120.0,
 
         "do_random_rotate": True,
         "degree": 1.0,
-        "crop_bound": 550, # Total padding to remove from top & bottom, centered
+        "crop_remain": 160, # Total height after cropping top and bottom, centered
+        # "crop_bound": 550, # Total padding to remove from top & bottom, centered
+        "do_art_crop": True,
+        "do_kb_crop": False,
+        "garg_crop": False,
+        "eigen_crop": False,
+        "use_right": False,
+        "shuffle": False # Dataset
+    },
+    "art_test": {
+        "dataset": "art",
+        "track": "KMS",
+        "bag" : "ks_2024_08_24-16_43_10_9",
+        "min_depth": 0.01,
+        "max_depth": 120.0,
+        "data_path": os.path.join(HOME_DIR, "ART/"),
+        "gt_path": os.path.join(HOME_DIR, "ART/"),
+        "filenames_file": "./train_test_inputs/art_eval_KMS_ks_2024_08_24.txt",
+        "input_height": 710,
+        "input_width": 1018,  # 704
+        "data_path_eval": os.path.join(HOME_DIR, "ART/"),
+        "gt_path_eval": os.path.join(HOME_DIR, "ART/"),
+        "filenames_file_eval": "./train_test_inputs/art_eval_KMS_ks_2024_08_24-16_43_10_9_filenames.txt",
+
+        "min_depth_eval": 1e-3,
+        "max_depth_eval": 120.0,
+
+        "do_random_rotate": False,
+        "degree": 1.0,
+        "crop_remain": 160,
         "do_art_crop": True,
         "do_kb_crop": False,
         "garg_crop": False,

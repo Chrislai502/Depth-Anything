@@ -1,6 +1,6 @@
 import argparse
 from zoedepth.utils.config import get_config
-from zoedepth.data.data_mono import MixedARTKITTINYU
+from zoedepth.data.data_mono import MixedARTKITTINYU, DepthDataLoader
 from pprint import pprint
 import torch
 import os
@@ -8,6 +8,7 @@ import os
 # Set environment variables for OpenGL and WandB (if needed)
 os.environ["PYOPENGL_PLATFORM"] = "egl"
 os.environ["WANDB_START_METHOD"] = "thread"
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def fix_random_seed(seed: int):
     """
@@ -44,7 +45,8 @@ def test_data_loading(config, dataset_class, sample_ratio = None, mode="train"):
     if sample_ratio:
         data_loader = dataset_class(config, mode, sample_ratio).data
     else:
-        data_loader = dataset_class(config, mode).data
+        data_loader = DepthDataLoader(config, "online_eval", device=device).data
+
 
     # Print the config to verify settings
     # pprint(config)
@@ -84,16 +86,20 @@ if __name__ == '__main__':
     args, unknown_args = parser.parse_known_args()
 
     # Load configuration
-    config = get_config(args.model, "train", args.dataset)
+    # config = get_config(args.model, "train", args.dataset)
+    mode = "eval"
+    config = get_config(args.model, mode, args.dataset)
     print(f"Config in test_dataloader.py: {hex(id(config))}")
     # config = get_config(args.model, "eval", args.dataset)
     config.batch_size = args.batch_size
     config.num_workers = args.num_workers
-    config.mode = 'train'  # Ensure mode is set to 'train'
-    # config.mode = 'eval'
+    # config.mode = 'train'  # Ensure mode is set to 'train'
+    config.mode = mode
 
     # Test MixedNYUKITTI
     # test_data_loading(config, MixedNYUKITTI, mode="train")
 
     # Test MixedARTKITTINYU
-    test_data_loading(config, MixedARTKITTINYU, {'art': 1, 'kitti': 2}, mode="train")
+    # test_data_loading(config, MixedARTKITTINYU, {'art': 1, 'kitti': 2}, mode=mode)
+    test_data_loading(config, DepthDataLoader, mode=mode)
+    

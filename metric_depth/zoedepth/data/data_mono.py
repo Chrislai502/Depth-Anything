@@ -306,9 +306,9 @@ class MixedARTKITTINYU(object):
             # When does the Resizing of Kitti Happens??
 
         # Testing Dataset
-        art_test_conf = change_dataset(edict(config), 'art')
+        art_test_conf = change_dataset(edict(config), 'art_test')
 
-        # Make art_track2 default for testing
+        # Make art_test default for testing
         self.config = config = art_test_conf
         # img_size = self.config.get("img_size", None)
         # img_size = img_size if self.config.get("do_input_resize", False) else None
@@ -418,8 +418,8 @@ class DataLoadPreprocess(Dataset):
             self.reader = ImReader()
 
         # Set cropping bound if using the 'art' dataset
-        if config.dataset == 'art':
-            self.crop_bound = config.crop_bound
+        if config.dataset[:3] == 'art':
+            self.crop_remain = config.crop_remain
 
     def postprocess(self, sample):
         """
@@ -453,7 +453,7 @@ class DataLoadPreprocess(Dataset):
                 # For KITTI dataset with right camera images (50% probability)
                 image_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[3]))
                 depth_path = os.path.join(self.config.gt_path, remove_leading_slash(sample_path.split()[4]))
-            elif self.config.dataset == 'art':
+            elif self.config.dataset[:3] == 'art':
                 image_path = os.path.join(self.config.data_path, self.config.track, self.config.bag)
                 depth_path = os.path.join(self.config.gt_path, self.config.track, self.config.bag)
                 image_path = os.path.join(image_path, remove_leading_slash(sample_path.split()[0]))
@@ -525,7 +525,7 @@ class DataLoadPreprocess(Dataset):
 
         else:
             # Loading for online evaluation or inference
-            if self.config.dataset == 'art':
+            if self.config.dataset[:3] == 'art':
                 data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
                 data_path = os.path.join(data_path, self.config.track, self.config.bag)
             else:
@@ -535,7 +535,7 @@ class DataLoadPreprocess(Dataset):
 
             # For online evaluation, load depth data if available
             if self.mode == 'online_eval':
-                if self.config.dataset == 'art':
+                if self.config.dataset[:3] == 'art':
                     gt_path = os.path.join(self.config.gt_path_eval, self.config.track, self.config.bag)
                 else:
                     gt_path = self.config.gt_path_eval
@@ -558,9 +558,9 @@ class DataLoadPreprocess(Dataset):
 
         # Apply Art dataset-specific cropping.
         
-        if self.config.dataset == 'art' and self.config.do_art_crop and has_valid_depth:
+        if self.config.dataset[:3] == 'art' and self.config.do_art_crop and has_valid_depth:
             height, width, _ = image.shape
-            bottom_margin = self.crop_bound // 2
+            bottom_margin = (height - self.crop_remain) // 2
             top_margin = height - bottom_margin
             # Crop both image and depth ground truth
             depth_gt = depth_gt[bottom_margin:top_margin, ...] 
