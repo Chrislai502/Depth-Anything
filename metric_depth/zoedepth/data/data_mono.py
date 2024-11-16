@@ -62,9 +62,9 @@ def _is_numpy_image(img):
     return isinstance(img, np.ndarray) and (img.ndim in {2, 3})
 
 
-def preprocessing_transforms(mode, **kwargs):
+def preprocessing_transforms(mode, config = None, **kwargs):
     return transforms.Compose([
-        ToTensor(mode=mode, **kwargs)
+        ToTensor(mode=mode, config=config, **kwargs)
     ])
 
 
@@ -131,7 +131,7 @@ class DepthDataLoader(object):
             "do_input_resize", False) else None
 
         if transform is None:
-            transform = preprocessing_transforms(mode, size=img_size)
+            transform = preprocessing_transforms(mode, size=img_size, config=config)
 
         if mode == 'train':
 
@@ -665,6 +665,26 @@ class ToTensor(object):
             self.resize = transforms.Resize(size=size)
         else:
             self.resize = nn.Identity()
+            
+        # Add in Image Augmentations here
+        augmentation_transforms = []
+        augmentation_transforms.append(transforms.RandomApply(
+            [transforms.ColorJitter(
+                brightness=cj.get("brightness", 0.15),
+                contrast=cj.get("contrast", 0.5),
+                saturation=cj.get("saturation", 0.5),
+                hue=cj.get("hue", 0.1)
+            )],
+            p=cj.get("p", 0.5)
+        ))
+        
+        augmentation_transforms.append(
+            v2.RandomInvert(p = self.config.random)
+        )
+        jitter = v2.ColorJitter(brightness=.5, hue=.3)
+        inverter = v2.RandomInvert()
+        equalizer = v2.RandomEqualize()
+        solarizer = v2.RandomSolarize(threshold=192.0)
 
     def __call__(self, sample):
         image, focal = sample['image'], sample['focal']
@@ -677,6 +697,7 @@ class ToTensor(object):
 
         depth = sample['depth']
         if self.mode == 'train':
+            
             depth = self.to_tensor(depth)
             return {**sample, 'image': image, 'depth': depth, 'focal': focal}
         else:

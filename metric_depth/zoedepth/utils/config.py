@@ -75,7 +75,26 @@ DATASETS_CONFIG = {
         "garg_crop": False,
         "eigen_crop": False,
         "use_right": False,
-        "shuffle": False # Dataset
+        "shuffle": False, # Dataset
+        
+        # AUGMENTATION CONFIG
+        "apply_augmentations": True,
+        
+        # ColorJitter
+        "apply_jitter": True,
+        "brightness" : 0.15,
+        "contrast" : 0.2,
+        "saturation" : 0.2,
+        "hue" : 0.1,
+        "p" : 0.3,
+        
+        # Random Invert
+        "apply_jitter": True,
+        "brightness" : 0.15,
+        "contrast" : 0.2,
+        "saturation" : 0.2,
+        "hue" : 0.1,
+        "p" : 0.3,
     },
     "art_test": {
         "dataset": "art",
