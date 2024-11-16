@@ -89,11 +89,7 @@ DATASETS_CONFIG = {
         "p" : 0.3,
         
         # Random Invert
-        "apply_jitter": True,
-        "brightness" : 0.15,
-        "contrast" : 0.2,
-        "saturation" : 0.2,
-        "hue" : 0.1,
+        "apply_invert": True,
         "p" : 0.3,
     },
     "art_test": {
