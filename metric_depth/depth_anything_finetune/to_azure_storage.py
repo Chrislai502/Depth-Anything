@@ -74,4 +74,5 @@ path = f'{path}/{container}'
 print(f'This is the path: {path}')
 for blob in os.listdir(path):
     if blob not in all_blobs:
+        print(f"Uploading {blob} to {container} in Azure Blob Storage.")
         write_to_storage(container, blob)
