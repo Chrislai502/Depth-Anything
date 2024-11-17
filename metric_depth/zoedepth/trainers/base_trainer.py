@@ -144,33 +144,6 @@ class BaseTrainer:
         if self.config.get('early_stop', False) and self.step > self.config.early_stop:
             return True
 
-    def validate(self):
-        self.model.eval()
-        if self.should_write:
-            self.save_checkpoint(
-                f"{self.config.experiment_id}_latest.pt")
-
-        ################################# Validation loop ##################################################
-        # validate on the entire validation set in every process but save only from rank 0, I know, inefficient, but avoids divergence of processes
-        metrics, test_losses = self.validate()
-        # print("Validated: {}".format(metrics))
-        if self.should_log:
-            wandb.log(
-                {f"Test/{name}": tloss for name, tloss in test_losses.items()}, step=self.step)
-
-            wandb.log({f"Metrics/{k}": v for k,
-                        v in metrics.items()}, step=self.step)
-
-            if (metrics[self.metric_criterion] < best_loss) and self.should_write:
-                self.save_checkpoint(
-                    f"{self.config.experiment_id}_best.pt")
-                best_loss = metrics[self.metric_criterion]
-
-        self.model.train()
-        
-        if self.config.distributed:
-            dist.barrier()
-
     def train(self):
         print(f"Training {self.config.name}")
         if self.config.uid is None:
@@ -213,7 +186,7 @@ class BaseTrainer:
                 self.log_learning_rates()  # <-- Log LRs here
             
             # First validation datapoint
-            self.validate()    
+            _, _ = self.validate()
             
             pbar = tqdm(enumerate(self.train_loader), desc=f"Epoch: {epoch + 1}/{self.config.epochs}. Loop: Train",
                         total=self.iters_per_epoch) if is_rank_zero(self.config) else enumerate(self.train_loader)
@@ -244,33 +217,26 @@ class BaseTrainer:
 
                 if self.test_loader:
                     if (self.step % validate_every) == 0:
-                        self.validate()
-                        # self.model.eval()
-                        # if self.should_write:
-                        #     self.save_checkpoint(
-                        #         f"{self.config.experiment_id}_latest.pt")
+                        self.model.eval()
+                        if self.should_write:
+                            self.save_checkpoint(
+                                f"{self.config.experiment_id}_latest.pt")
 
-                        # ################################# Validation loop ##################################################
-                        # # validate on the entire validation set in every process but save only from rank 0, I know, inefficient, but avoids divergence of processes
-                        # metrics, test_losses = self.validate()
-                        # # print("Validated: {}".format(metrics))
-                        # if self.should_log:
-                        #     wandb.log(
-                        #         {f"Test/{name}": tloss for name, tloss in test_losses.items()}, step=self.step)
+                        ################################# Validation loop ##################################################
+                        # validate on the entire validation set in every process but save only from rank 0, I know, inefficient, but avoids divergence of processes
+                        metrics, test_losses = self.validate()
+                        # print("Validated: {}".format(metrics))
+                        if self.should_log:
+                            if (metrics[self.metric_criterion] < best_loss) and self.should_write:
+                                self.save_checkpoint(
+                                    f"{self.config.experiment_id}_best.pt")
+                                best_loss = metrics[self.metric_criterion]
 
-                        #     wandb.log({f"Metrics/{k}": v for k,
-                        #               v in metrics.items()}, step=self.step)
+                        self.model.train()
 
-                        #     if (metrics[self.metric_criterion] < best_loss) and self.should_write:
-                        #         self.save_checkpoint(
-                        #             f"{self.config.experiment_id}_best.pt")
-                        #         best_loss = metrics[self.metric_criterion]
-
-                        # self.model.train()
-
-                        # if self.config.distributed:
-                        #     dist.barrier()
-                        # print(f"Validated: {metrics} on device {self.config.rank}")
+                        if self.config.distributed:
+                            dist.barrier()
+                        print(f"Validated: {metrics} on device {self.config.rank}")
 
                 # print(f"Finished step {self.step} on device {self.config.rank}")
                 #################################################################################################
@@ -285,11 +251,6 @@ class BaseTrainer:
             metrics, test_losses = self.validate()
             # print("Validated: {}".format(metrics))
             if self.should_log:
-                wandb.log({f"Test/{name}": tloss for name,
-                          tloss in test_losses.items()}, step=self.step)
-                wandb.log({f"Metrics/{k}": v for k,
-                          v in metrics.items()}, step=self.step)
-
                 if (metrics[self.metric_criterion] < best_loss) and self.should_write:
                     self.save_checkpoint(
                         f"{self.config.experiment_id}_best.pt")
@@ -308,6 +269,14 @@ class BaseTrainer:
                     losses_avg.update(losses)
                 if metrics:
                     metrics_avg.update(metrics)
+
+            metrics, test_losses = metrics_avg.get_value(), losses_avg.get_value()
+
+            if self.should_log:
+                wandb.log({f"Test/{name}": tloss for name,
+                          tloss in test_losses.items()}, step=self.step)
+                wandb.log({f"Metrics/{k}": v for k,
+                          v in metrics.items()}, step=self.step)
 
             return metrics_avg.get_value(), losses_avg.get_value()
 
