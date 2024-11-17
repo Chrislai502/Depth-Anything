@@ -47,7 +47,7 @@ with open(output_path, "w") as f:
                 # continue  # Skip if focal length parsing fails
 
         # Write formatted data to output file
-        f.write(f"image/{os.path.basename(image_path)} groundtruth_depth/{os.path.basename(image_path)} {avg_focal:.4f}\n")
+        f.write(f"{bag}/image/{os.path.basename(image_path)} {bag}/groundtruth_depth/{os.path.basename(image_path)} {avg_focal:.4f}\n")
         print(f"Processed image: {os.path.basename(image_path)} with focal length {avg_focal:.4f}")
 
 print("Processing complete.")

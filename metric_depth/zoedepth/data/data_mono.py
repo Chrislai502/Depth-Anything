@@ -455,8 +455,8 @@ class DataLoadPreprocess(Dataset):
                 image_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[3]))
                 depth_path = os.path.join(self.config.gt_path, remove_leading_slash(sample_path.split()[4]))
             elif self.config.dataset[:3] == 'art':
-                image_path = os.path.join(self.config.data_path, self.config.track, self.config.bag)
-                depth_path = os.path.join(self.config.gt_path, self.config.track, self.config.bag)
+                image_path = os.path.join(self.config.data_path, self.config.track)
+                depth_path = os.path.join(self.config.gt_path, self.config.track)
                 image_path = os.path.join(image_path, remove_leading_slash(sample_path.split()[0]))
                 depth_path = os.path.join(depth_path, remove_leading_slash(sample_path.split()[1]))
             else:
@@ -528,7 +528,7 @@ class DataLoadPreprocess(Dataset):
             # Loading for online evaluation or inference
             if self.config.dataset[:3] == 'art':
                 data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
-                data_path = os.path.join(data_path, self.config.track, self.config.bag)
+                data_path = os.path.join(data_path, self.config.track)
             else:
                 data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
             image_path = os.path.join(data_path, remove_leading_slash(sample_path.split()[0]))
@@ -537,7 +537,7 @@ class DataLoadPreprocess(Dataset):
             # For online evaluation, load depth data if available
             if self.mode == 'online_eval':
                 if self.config.dataset[:3] == 'art':
-                    gt_path = os.path.join(self.config.gt_path_eval, self.config.track, self.config.bag)
+                    gt_path = os.path.join(self.config.gt_path_eval, self.config.track)
                 else:
                     gt_path = self.config.gt_path_eval
                 depth_path = os.path.join(gt_path, remove_leading_slash(sample_path.split()[1]))
@@ -668,7 +668,7 @@ class ToTensor(object):
             self.resize = nn.Identity()
             
         # Add in Image Augmentations here
-        if config and config["apply_augmentations"]:
+        if mode == 'train' and config and config["apply_augmentations"]:
             self.augment_probability = config.get("augmentation_probability", 0.5)
             
             # List of Augmentations to Perform

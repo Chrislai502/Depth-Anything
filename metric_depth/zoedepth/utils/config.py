@@ -56,7 +56,7 @@ DATASETS_CONFIG = {
         "max_depth": 120.0,
         "data_path": os.path.join(HOME_DIR, "ART/"),
         "gt_path": os.path.join(HOME_DIR, "ART/"),
-        "filenames_file": "./train_test_inputs/art_train_filenames.txt",
+        "filenames_file": "./train_test_inputs/art_2_bag_train_IMS_filenames.txt",
         "input_height": 710,
         "input_width": 1018,  # 704
         "data_path_eval": os.path.join(HOME_DIR, "ART/"),

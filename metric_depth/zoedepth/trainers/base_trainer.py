@@ -59,7 +59,12 @@ class BaseTrainer:
         self.train_loader = train_loader
         self.test_loader = test_loader
         self.optimizer = self.init_optimizer()
+        for i, group in enumerate(self.optimizer.param_groups):
+            print(f"Param Group {i}: Learning rate = {group['lr']}, Number of parameters = {len(group['params'])}")
         self.scheduler = self.init_scheduler()
+        
+        self.backbone_lr = None
+        self.rest_params_lr = None
 
     def resize_to_target(self, prediction, target):
         if prediction.shape[2:] != target.shape[-2:]:
@@ -178,6 +183,8 @@ class BaseTrainer:
             ################################# Train loop ##########################################################
             if self.should_log:
                 wandb.log({"Epoch": epoch}, step=self.step)
+                self.log_learning_rates()  # <-- Log LRs here
+                
             pbar = tqdm(enumerate(self.train_loader), desc=f"Epoch: {epoch + 1}/{self.config.epochs}. Loop: Train",
                         total=self.iters_per_epoch) if is_rank_zero(self.config) else enumerate(self.train_loader)
             for i, batch in pbar:
@@ -192,7 +199,10 @@ class BaseTrainer:
                 if is_rank_zero(self.config) and self.config.print_losses:
                     pbar.set_description(
                         f"Epoch: {epoch + 1}/{self.config.epochs}. Loop: Train. Losses: {stringify_losses(losses)}")
+                
+                # Scheduler step and log learning rates
                 self.scheduler.step()
+                self.log_learning_rates()  # <-- Log LRs here
 
                 if self.should_log and self.step % 50 == 0:
                     wandb.log({f"Train/{name}": loss.item()
@@ -285,7 +295,20 @@ class BaseTrainer:
                 "optimizer": None,  # TODO : Change to self.optimizer.state_dict() if resume support is needed, currently None to reduce file size
                 "epoch": self.epoch
             }, fpath)
-
+        
+    def log_learning_rates(self):
+        """Log the current learning rates for backbone and rest of parameters."""
+        # Assume the optimizer has 2 param groups: [backbone, rest]
+        self.backbone_lr = self.optimizer.param_groups[0]['lr']
+        self.rest_params_lr = self.optimizer.param_groups[-1]['lr']
+        
+        # Log to Wandb
+        if self.should_log:
+            wandb.log({
+                "lr_Backbone": self.backbone_lr,
+                "lr_Rest": self.rest_params_lr
+            }, step=self.step)
+            
     def log_images(self, rgb: Dict[str, list] = {}, depth: Dict[str, list] = {}, scalar_field: Dict[str, list] = {}, prefix="", scalar_cmap="magma_r", min_depth=None, max_depth=None):
         if not self.should_log:
             return
