@@ -37,6 +37,7 @@ from zoedepth.utils.easydict import EasyDict as edict
 from PIL import Image, ImageOps
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+from torchvision.transforms import v2
 
 from zoedepth.utils.config import change_dataset
 
@@ -623,10 +624,10 @@ class DataLoadPreprocess(Dataset):
                 image = (image[:, ::-1, :]).copy()
                 depth_gt = (depth_gt[:, ::-1, :]).copy()
 
-            # Random gamma, brightness, color augmentation
-            do_augment = random.random()
-            if do_augment > 0.5:
-                image = self.augment_image(image)
+            # # Random gamma, brightness, color augmentation
+            # do_augment = random.random()
+            # if do_augment > 0.5:
+            #     image = self.augment_image(image)
 
         return image, depth_gt
 
@@ -656,7 +657,7 @@ class DataLoadPreprocess(Dataset):
 
 
 class ToTensor(object):
-    def __init__(self, mode, do_normalize=False, size=None):
+    def __init__(self, mode, config=None,do_normalize=False, size=None):
         self.mode = mode
         self.normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) if do_normalize else nn.Identity()
@@ -667,28 +668,55 @@ class ToTensor(object):
             self.resize = nn.Identity()
             
         # Add in Image Augmentations here
-        augmentation_transforms = []
-        augmentation_transforms.append(transforms.RandomApply(
-            [transforms.ColorJitter(
-                brightness=cj.get("brightness", 0.15),
-                contrast=cj.get("contrast", 0.5),
-                saturation=cj.get("saturation", 0.5),
-                hue=cj.get("hue", 0.1)
-            )],
-            p=cj.get("p", 0.5)
-        ))
-        
-        augmentation_transforms.append(
-            v2.RandomInvert(p = self.config.random)
-        )
-        jitter = v2.ColorJitter(brightness=.5, hue=.3)
-        inverter = v2.RandomInvert()
-        equalizer = v2.RandomEqualize()
-        solarizer = v2.RandomSolarize(threshold=192.0)
+        if config and config["apply_augmentations"]:
+            self.augment_probability = config.get("augmentation_probability", 0.5)
+            
+            # List of Augmentations to Perform
+            self.augmentations = [
+                transforms.ColorJitter(
+                    brightness=config.get("brightness", 0.2),
+                    contrast=config.get("contrast", 0.2),
+                    saturation=config.get("saturation", 0.1),
+                    hue=config.get("hue", 0.2)
+                ),
+                # v2.RandomInvert(p =1.0),
+                v2.RandomEqualize(p=1.0),
+                # v2.RandomSolarize(threshold=192.0/255.0, p=1.0)
+            ]
+            
+            # augmentation_transforms = []
+            # if config and config.apply_jitter:
+            #     probability = config.get("probability", 0.5)
+            #     augmentation_transforms.append(transforms.RandomApply(
+            #         [transforms.ColorJitter(
+            #             brightness=config.get("brightness", 0.15),
+            #             contrast=config.get("contrast", 0.5),
+            #             saturation=config.get("saturation", 0.5),
+            #             hue=config.get("hue", 0.1)
+            #         )],
+            #         p=probability
+            #     ))
+            
+            # if config and config.apply_invert:
+            #     augmentation_transforms.append(
+            #         v2.RandomInvert(p =probability)
+            #     )
 
+            # # equalizer = v2.RandomEqualize()
+            # # solarizer = v2.RandomSolarize(threshold=192.0)
+            # self.augment_transform = transforms.Compose(augmentation_transforms)
+        else:
+            self.augmentations = []
+            self.augment_probability = 0
+            # self.augment_transform = nn.Identity()
+        
     def __call__(self, sample):
         image, focal = sample['image'], sample['focal']
         image = self.to_tensor(image)
+        
+        if self.mode == 'train' and self.augmentations and random.random() < self.augment_probability:
+            augmentation = random.choice(self.augmentations)
+            image = augmentation(image)
         image = self.normalize(image)
         image = self.resize(image)
 

@@ -39,7 +39,15 @@
         "midas_lr_factor": 50,
         "encoder_lr_factor":50,
         "pos_enc_lr_factor":50,
-        "freeze_midas_bn": true
+        "freeze_midas_bn": true,
+
+        "apply_augmentations": true,
+        "augmentation_probability": 0.75,
+        
+        "brightness" : 0.2,
+        "contrast" : 0.2,
+        "saturation" : 0.1,
+        "hue" : 0.2
 
     },
 
