@@ -1,6 +1,9 @@
 python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4
 python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4 --dataset art
 python evaluate.py -m zoedepth --pretrained_resource="local::./checkpoints/depth_anything_metric_depth_outdoor.pt" -d art
-python3 train_mix_art.py -m zoedepth -d mix 
+python3 train_mix_art.py -m zoedepth -d mix --pretrained_resource="local::./checkpoints/
+
+python evaluate.py -m zoedepth --pretrained_resource="local::./checkpoints/ZoeDepthv1_12-Nov_23-23-08db97f5a4e4_latest.pt" -d art
+python depth_anything_converter.py -m zoedepth --pretrained_resource="local::./checkpoints/ZoeDepthv1_12-Nov_23-23-08db97f5a4e4_latest.pt" -d art
 
 Best eval: {'a1': 0.689, 'a2': 0.91, 'a3': 0.967, 'abs_rel': 0.183, 'rmse': 10.954, 'log_10': 0.085, 'rmse_log': 0.266, 'silog': 23.529, 'sq_rel': 2.007}s

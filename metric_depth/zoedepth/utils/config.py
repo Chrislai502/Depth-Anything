@@ -33,7 +33,7 @@ import platform
 
 ROOT = pathlib.Path(__file__).parent.parent.resolve()
 
-HOME_DIR = os.path.expanduser("./data")
+HOME_DIR = "/home/art-chris/testing/ART-depth-rt/data"
 
 COMMON_CONFIG = {
     "save_dir": os.path.expanduser("./depth_anything_finetune"),
@@ -54,14 +54,15 @@ DATASETS_CONFIG = {
         "bag" : "rosbag2_2024_09_04-13_17_48_9",
         "min_depth": 0.01,
         "max_depth": 120.0,
-        "data_path": os.path.join(HOME_DIR, "ART/"),
-        "gt_path": os.path.join(HOME_DIR, "ART/"),
+        "root_dir": os.path.join(HOME_DIR, "datasets/ART/", "IMS", "rosbag2_2024_09_04-13_17_48_9"),
+        "data_path": os.path.join(HOME_DIR, "datasets/ART/"),
+        "gt_path": os.path.join(HOME_DIR, "datasets/ART/"),
         "filenames_file": "./train_test_inputs/art_2_bag_train_IMS_filenames.txt",
         "input_height": 710,
         "input_width": 1018,  # 704
-        "data_path_eval": os.path.join(HOME_DIR, "ART/"),
-        "gt_path_eval": os.path.join(HOME_DIR, "ART/"),
-        "filenames_file_eval": "./train_test_inputs/art_eval_KMS_ks_2024_08_24.txt",
+        "data_path_eval": os.path.join(HOME_DIR, "datasets/ART/"),
+        "gt_path_eval": os.path.join(HOME_DIR, "datasets/ART/"),
+        "filenames_file_eval": os.path.join(HOME_DIR, "data_utils/art_eval_IMS_rosbag2_2024_09_04-13_17_48_9_filenames.txt"),
 
         "min_depth_eval": 1e-3,
         "max_depth_eval": 120.0,
