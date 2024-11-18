@@ -50,7 +50,8 @@ class BaseTrainer:
         """ Base Trainer class for training a model."""
         
         self.config = config
-        self.metric_criterion = "abs_rel"
+        # self.metric_criterion = "abs_rel"
+        self.metric_criterion = "a1"
         if device is None:
             device = torch.device(
                 'cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -162,7 +163,8 @@ class BaseTrainer:
 
         self.model.train()
         self.step = 0
-        best_loss = np.inf
+        # best_loss = np.inf
+        best_loss = -np.inf  # Negative infinity
         validate_every = int(self.config.validate_every * self.iters_per_epoch)
 
 
@@ -227,7 +229,7 @@ class BaseTrainer:
                         metrics, test_losses = self.validate()
                         # print("Validated: {}".format(metrics))
                         if self.should_log:
-                            if (metrics[self.metric_criterion] < best_loss) and self.should_write:
+                            if (metrics[self.metric_criterion] >= best_loss) and self.should_write:
                                 self.save_checkpoint(
                                     f"{self.config.experiment_id}_best.pt")
                                 best_loss = metrics[self.metric_criterion]
