@@ -49,8 +49,13 @@ class Trainer(BaseTrainer):
     def train_on_batch(self, batch, train_step):
         """
         Expects a batch of images and depth as input
-        batch["image"].shape : batch_size, c, h, w
-        batch["depth"].shape : batch_size, 1, h, w
+        batch[0]["image"].shape : batch_size, c, h, w
+        batch[0]["depth"].shape : batch_size, 1, h, w
+        batch[1]["image"].shape : batch_size_1, c, h', w'
+        batch[1]["depth"].shape : batch_size_1, 1, h', w'
+        ...
+        batch[n]["image"].shape : ...
+        batch[n]["depth"].shape : ...
         """
 
         images, depths_gt = batch['image'].to(
@@ -103,6 +108,93 @@ class Trainer(BaseTrainer):
         self.optimizer.zero_grad()
 
         return losses
+    
+    def train_on_dataset_batches(self, batch, train_step):
+        """
+        Expects a batch of images and depth as input
+        batch[0]["image"].shape : batch_size, c, h, w
+        batch[0]["depth"].shape : batch_size, 1, h, w
+        batch[1]["image"].shape : batch_size_1, c, h', w'
+        batch[1]["depth"].shape : batch_size_1, 1, h', w'
+        ...
+        batch[n]["image"].shape : ...
+        batch[n]["depth"].shape : ...
+        """
+        total_loss = 0 # To accumulate normalized losses
+        losses_dict = {} # To store individual losses for logging
+        
+        # Process each dataset's batch sequentially
+        for sub_batch in batch:
+            images, depths_gt = sub_batch['image'].to(
+                self.device), sub_batch['depth'].to(self.device)
+            dataset = sub_batch['dataset'][0] # Identify Dataset name
+            
+            mask = sub_batch['mask'].to(self.device).to(torch.bool)
+            
+            with amp.autocast('cuda', enabled=self.config.use_amp):
+                # Forward Pass
+                output = self.model(images)
+                pred_depths = output['metric_depth']
+                
+                # Compute SILog loss
+                l_si, pred = self.silog_loss(
+                    pred_depths, depths_gt, mask = mask, interpolate=True, return_interpolated=True)
+                loss = self.config.w_si * l_si
+                losses[self.]
+        ####################
+
+
+        images, depths_gt = batch['image'].to(
+            self.device), batch['depth'].to(self.device)
+        dataset = batch['dataset'][0]
+
+        b, c, h, w = images.size()
+        mask = batch["mask"].to(self.device).to(torch.bool)
+
+        losses = {}
+
+        with amp.autocast('cuda', enabled=self.config.use_amp):
+
+            output = self.model(images)
+            pred_depths = output['metric_depth']
+
+            l_si, pred = self.silog_loss(
+                pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
+            loss = self.config.w_si * l_si
+            losses[self.silog_loss.name] = l_si
+
+            if self.config.w_grad > 0:
+                l_grad = self.grad_loss(pred, depths_gt, mask=mask)
+                loss = loss + self.config.w_grad * l_grad
+                losses[self.grad_loss.name] = l_grad
+            else:
+                l_grad = torch.Tensor([0])
+
+        self.scaler.scale(loss).backward()
+
+        if self.config.clip_grad > 0:
+            self.scaler.unscale_(self.optimizer)
+            nn.utils.clip_grad_norm_(
+                self.model.parameters(), self.config.clip_grad)
+
+        self.scaler.step(self.optimizer)
+
+        if self.should_log and (self.step % int(self.config.log_images_every * self.iters_per_epoch)) == 0:
+            # -99 is treated as invalid depth in the log_images function and is colored grey.
+            depths_gt[torch.logical_not(mask)] = -99
+
+            self.log_images(rgb={"Input": images[0, ...]}, depth={"GT": depths_gt[0], "PredictedMono": pred[0]}, prefix="Train",
+                            min_depth=DATASETS_CONFIG[dataset]['min_depth'], max_depth=DATASETS_CONFIG[dataset]['max_depth'])
+
+            if self.config.get("log_rel", False):
+                self.log_images(
+                    scalar_field={"RelPred": output["relative_depth"][0]}, prefix="TrainRel")
+
+        self.scaler.update()
+        self.optimizer.zero_grad()
+
+        return losses
+    
     
     @torch.no_grad()
     def eval_infer(self, x):

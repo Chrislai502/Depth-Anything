@@ -213,10 +213,9 @@ class SampleRatioAwareDataLoader(object):
     This dataloader samples from multiple datasets according to specified ratios.
     If a dataset is exhausted before others, it resets (restarts) so the ratios are maintained.
     '''
-    def __init__(self, dataloaders:dict, ratios:dict):
+    def __init__(self, dataloaders:dict, normalized_ratios:dict):
         
         self.dataloaders = dataloaders
-        self.dataset_iterators = {key: iter(loader)for key, loader in dataloaders.items()}
 
         # # Normalize the ratios
         # tot = sum(ratios.values())
@@ -238,25 +237,26 @@ class SampleRatioAwareDataLoader(object):
         #     num_batches += len(loader)
 
         # # Calculating Dataloader size
-        self.dataloader_size = int(sum([v * self.smallest_dataset_len for v in ratios.values()])) # dataloader size
+        self.dataloader_size = int(sum([v * self.smallest_dataset_len for v in normalized_ratios.values()])) # dataloader size
 
         # Whole dataset will have this many samples
         # print("Whole Unnormalized dataset will have total {} samples and {} batches".format(num_samples, num_batches))
         print("Dataloader Presumed Normalized dataset will have total {} batches".format(self.dataloader_size))
-        print("DEBUG: Ratios are: {}".format(ratios))
+        print("DEBUG: Normalized Ratios are: {}".format(normalized_ratios))
 
     def fetch_samples_from_datasets(self):
         """
         Fetch one batch of samples from each dataset and merge them into a single mixed batch
         """
         mixed_batch = {}
+        iterables_ = {key : iter(it) for key, it in self.dataloaders.items()}
         exhausted = {key: False for key in self.dataloaders.keys()}
         overlapping_keys = None
         temp_batches = []
         running_count = 0
 
         while running_count < self.dataloader_size and not all(exhausted.values()):
-            for key, iterator in self.dataset_iterators.items():
+            for key, iterator in iterables_.items():
                 try:
                     # Fetch one batch from the current dataset
                     retrieves = next(iterator)
@@ -291,50 +291,50 @@ class SampleRatioAwareDataLoader(object):
         
         return mixed_batch
         
-    def ratio_aware_repetitive_roundrobin(self):
-        """
-        cycles through iterables but sample wise
-        first yield first sample from first iterable then first sample from second iterable and so on
-        then second sample from first iterable then second sample from second iterable and so on
+    # def ratio_aware_repetitive_roundrobin(self):
+    #     """
+    #     cycles through iterables but sample wise
+    #     first yield first sample from first iterable then first sample from second iterable and so on
+    #     then second sample from first iterable then second sample from second iterable and so on
 
-        If one iterable is shorter than the others, it is repeated until all iterables are exhausted
-        repetitive_roundrobin('ABC', 'D', 'EF') --> A D E B D F C D E
-        """
-        # Repetitive roundrobin
-        iterables_ = {key : iter(it) for key, it in self.dataloaders.items()}
-        dataset_keys = list(self.dataloaders.keys())
-        probabilities = [self.normalized_ratios[key] for key in dataset_keys]
-        exhausted = {key: False for key in dataset_keys}
-        running_count = 0 # To keep track of the number of samples yielded
+    #     If one iterable is shorter than the others, it is repeated until all iterables are exhausted
+    #     repetitive_roundrobin('ABC', 'D', 'EF') --> A D E B D F C D E
+    #     """
+    #     # Repetitive roundrobin
+    #     iterables_ = {key : iter(it) for key, it in self.dataloaders.items()}
+    #     dataset_keys = list(self.dataloaders.keys())
+    #     probabilities = [self.normalized_ratios[key] for key in dataset_keys]
+    #     exhausted = {key: False for key in dataset_keys}
+    #     running_count = 0 # To keep track of the number of samples yielded
 
-        while running_count < self.dataloader_size and not all(exhausted.values()):
-            # Pick a key at random
-            chosen_key = random.choices(dataset_keys, weights=probabilities, k=1)[0]
+    #     while running_count < self.dataloader_size and not all(exhausted.values()):
+    #         # Pick a key at random
+    #         chosen_key = random.choices(dataset_keys, weights=probabilities, k=1)[0]
 
-            # print("DEBUG: Chosen key is: {}".format(chosen_key))
-            try:
-                yield next(iterables_[chosen_key])
-            except StopIteration:
-                exhausted[chosen_key] = True
-                iterables_[chosen_key] = itertools.cycle(self.dataloaders[chosen_key])
-                # First elements may get repeated if one iterable is shorter than the others
-                yield next(iterables_[chosen_key])
+    #         # print("DEBUG: Chosen key is: {}".format(chosen_key))
+    #         try:
+    #             yield next(iterables_[chosen_key])
+    #         except StopIteration:
+    #             exhausted[chosen_key] = True
+    #             iterables_[chosen_key] = itertools.cycle(self.dataloaders[chosen_key])
+    #             # First elements may get repeated if one iterable is shorter than the others
+    #             yield next(iterables_[chosen_key])
 
-            running_count += 1
+    #         running_count += 1
 
     def __iter__(self):
-        return self.ratio_aware_repetitive_roundrobin()
+        return self.fetch_samples_from_datasets()
 
     def __len__(self):
         # First samples get repeated, thats why the plus one
         return self.dataloader_size
 
 class MixedARTKITTINYU(object):
-    def __init__(self, config, mode, sample_ratio:dict =None, device='cpu', **kwargs):
+    def __init__(self, config, mode, sample_ratios:dict =None, device='cpu', **kwargs):
         
-        if sample_ratio is None:
-            sample_ratio = {
-                'kitti': 1,
+        if sample_ratios is None:
+            sample_ratios = {
+                'kitti': 2,
                 'art' : 1,
                 # 'nyu' : 1
             }
@@ -347,14 +347,14 @@ class MixedARTKITTINYU(object):
         # Smallest Eats first: Making sure that there is at least batch size 1 for every dataset.
         # First, check if the batch size is at least the number of datasets. If not, raise error.
         self.batch_size = config.batch_size
-        if len(sample_ratio) < self.batch_size:
+        if len(sample_ratios) > self.batch_size:
             raise Exception("Error in MixedARTKITTINYU: Batch size cannot be less than the number of datasets")
-        if config.workers < len(sample_ratio):
+        if config.workers < len(sample_ratios):
             raise Exception("Error in MixedARTKITTINYU: Number of workers cannot be less than the number of datasets")
         
         # Normalize the batch sizes across sample_ratios
         tot = sum(sample_ratios.values())
-        self.normalized_ratios = {key: (values / tot) for key, values in sample_ratio.items()}
+        self.normalized_ratios = {key: (values / tot) for key, values in sample_ratios.items()}
         self.normalized_batches = {key: value * self.batch_size for key, value in self.normalized_ratios.items()}
         self.normalized_workers = {key: value * config.workers  for key, value in self.normalized_ratios.items()}
         self.sorted_normalized_batches= list(sorted(self.normalized_batches.items(), key=lambda x:x[1]))
@@ -370,7 +370,7 @@ class MixedARTKITTINYU(object):
                 # Eat away from the next batch
                 self.sorted_normalized_batches[i+1][1] -= (1 - num_samples) # Should always work because there is at least batch_size number of datasets
             else:
-                final_batches[k] = num_samples//1 # floor of num_samples
+                final_batches[k] = int(num_samples//1) # floor of num_samples
                 
         # Assigning workers based on sorted normalized workers
         for i, (k, num_workers) in enumerate(self.sorted_normalized_workers): # num_workers here is a float
@@ -380,19 +380,19 @@ class MixedARTKITTINYU(object):
                 # Eat away from the next batch
                 self.sorted_normalized_workers[i+1][1] -= (1 - num_workers)
             else:
-                final_workers[k] = num_workers//1 # floor of num_workers
+                final_workers[k] = int(num_workers//1) # floor of num_workers
   
         # Converting the list back into a dictionary
-        final_batches = dict(self.final_batches)
-        final_workers = dict(self.final_workers)
+        final_batches = dict(final_batches)
+        final_workers = dict(final_workers)
         
         # Getting the config for each dataset
         conf_list = {}
-        for k in sample_per_batch.keys():
+        for k in sample_ratios.keys():
             conf_list[k] = change_dataset(edict(config), k) # This is not working for the ART Dataset. 
             conf_list[k].batch_size = final_batches[k] # Updating the adjusted batch size
             conf_list[k].workers = final_workers[k] # Updating the adjusted worker count
-            print("Dataset {} has {} samples, {} batches, {} workers".format(k, len(conf_list[k])* conf_list[k].batch_size, len(conf_list[k]), conf_list[k].workers))
+            print("Dataset {} will have a {} batch size, for {} workers".format(k, conf_list[k].batch_size, conf_list[k].workers))
         
         # Creating dataloaders
         if mode == 'train':
@@ -400,7 +400,7 @@ class MixedARTKITTINYU(object):
             for dataset_type, conf in conf_list.items():
                 dataloaders[dataset_type] = DepthDataLoader(conf, mode, device=device).data
             # Ratio Aware Dataloader
-            self.data = SampleRatioAwareDataLoader(dataloaders, ratios=sample_ratio)
+            self.data = SampleRatioAwareDataLoader(dataloaders, self.normalized_ratios)
         else:
             # Testing Dataset
             art_test_conf = change_dataset(edict(config), 'art_test')

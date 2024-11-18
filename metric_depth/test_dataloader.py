@@ -117,8 +117,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Test data loading for MixedARTKITTINYU datasets.")
     parser.add_argument("-m", "--model", type=str, default="zoedepth", help="Model name (default: synunet)")
     parser.add_argument("-d", "--dataset", type=str, default='mix', help="Dataset name (default: mix)")
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size for testing (default: 4)")
-    parser.add_argument("--num_workers", type=int, default=2, help="Number of workers for data loading (default: 2)")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for testing (default: 4)")
+    parser.add_argument("--num_workers", type=int, default=8, help="Number of workers for data loading (default: 2)")
 
     args, unknown_args = parser.parse_known_args()
 
@@ -131,5 +131,5 @@ if __name__ == '__main__':
     config.mode = mode
 
     # Test MixedARTKITTINYU
-    # test_data_loading(config, MixedARTKITTINYU, {'art': 1, 'kitti': 1}, mode=mode)
-    test_data_loading(config, DepthDataLoader, mode=mode)
+    test_data_loading(config, MixedARTKITTINYU, {'art': 1, 'kitti': 2}, mode=mode)
+    # test_data_loading(config, DepthDataLoader, mode=mode)
