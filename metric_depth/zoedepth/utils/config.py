@@ -297,6 +297,7 @@ COMMON_TRAINING_CONFIG = {
     "dataset": "nyu",
     "distributed": False,  # Set to True for multi-GPU training
     "workers": 16,
+    "eval_workers": 8,
     "clip_grad": 0.1,
     "use_shared_dict": False,
     "shared_dict": None,

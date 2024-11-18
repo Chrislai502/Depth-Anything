@@ -214,39 +214,83 @@ class SampleRatioAwareDataLoader(object):
     If a dataset is exhausted before others, it resets (restarts) so the ratios are maintained.
     '''
     def __init__(self, dataloaders:dict, ratios:dict):
+        
         self.dataloaders = dataloaders
+        self.dataset_iterators = {key: iter(loader)for key, loader in dataloaders.items()}
 
-        # Normalize the ratios
-        tot = sum(ratios.values())
-        min_ratio = min(ratios.values())
-        self.normalized_ratios = {key: value / tot for key, value in ratios.items()}
-        ratios = {key: value / min_ratio for key, value in ratios.items()} # Make the smallest ratio 1
+        # # Normalize the ratios
+        # tot = sum(ratios.values())
+        # min_ratio = min(ratios.values())
+        # self.normalized_ratios = {key: value / tot for key, value in ratios.items()}
+        # ratios = {key: value / min_ratio for key, value in ratios.items()} # Make the smallest ratio 1
 
-        # Determine the smallest dataset in terms of length
+        # # Determine the smallest dataset in terms of length
         self.smallest_dataset_key = min(self.dataloaders, key=lambda k: len(self.dataloaders[k]))
         self.smallest_dataset_len = len(self.dataloaders[self.smallest_dataset_key])
 
-        # Logging some dataset metrics
-        num_samples = 0
-        num_batches = 0
-        for k in self.dataloaders.keys():
-            loader = self.dataloaders[k]
-            print("Dataset {} has {} samples, {} batches".format(k, len(loader)* loader.batch_size, len(loader)))
-            num_samples += len(loader) * loader.batch_size
-            num_batches += len(loader)
+        # # Logging some dataset metrics
+        # num_samples = 0
+        # num_batches = 0
+        # for k in self.dataloaders.keys():
+        #     loader = self.dataloaders[k]
+        #     print("Dataset {} has {} samples, {} batches".format(k, len(loader)* loader.batch_size, len(loader)))
+        #     num_samples += len(loader) * loader.batch_size
+        #     num_batches += len(loader)
 
-        # Calculating Dataloader size
+        # # Calculating Dataloader size
         self.dataloader_size = int(sum([v * self.smallest_dataset_len for v in ratios.values()])) # dataloader size
 
         # Whole dataset will have this many samples
-        print("Whole Unnormalized dataset will have total {} samples and {} batches".format(num_samples, num_batches))
+        # print("Whole Unnormalized dataset will have total {} samples and {} batches".format(num_samples, num_batches))
         print("Dataloader Presumed Normalized dataset will have total {} batches".format(self.dataloader_size))
-        
-        # print("DEBUG: Smallest dataset is: {}".format(self.smallest_dataset_key))
-        # print("DEBUG: Length of smallest dataset is: {}".format(self.smallest_dataset_len))
-        # print("DEBUG: Dataloader size is: {}".format(self.dataloader_size))
         print("DEBUG: Ratios are: {}".format(ratios))
 
+    def fetch_samples_from_datasets(self):
+        """
+        Fetch one batch of samples from each dataset and merge them into a single mixed batch
+        """
+        mixed_batch = {}
+        exhausted = {key: False for key in self.dataloaders.keys()}
+        overlapping_keys = None
+        temp_batches = []
+        running_count = 0
+
+        while running_count < self.dataloader_size and not all(exhausted.values()):
+            for key, iterator in self.dataset_iterators.items():
+                try:
+                    # Fetch one batch from the current dataset
+                    retrieves = next(iterator)
+                except StopIteration:
+                    exhausted[key] = True
+                    iterables_[key] = itertools.cycle(self.dataloaders[key])
+                    retrieves = next(iterator)
+                
+                temp_batches.append(retrieves)
+                
+                # Determine if overlapping keys across datasets
+                if overlapping_keys is None:
+                    overlapping_keys = set(retrieves.keys())
+                else:
+                    overlapping_keys &= set(retrieves.keys())
+            
+            if overlapping_keys is None:
+                raise Exception("Datasets have no overlapping keys")
+            
+            # Merge the batches into a single mixed batch
+            for key in overlapping_keys:
+                mixed_batch[key] = None
+            
+            for batch in temp_batches: # Concatenating them together
+                for key in overlapping_keys:
+                    if mixed_batch[key] is None:
+                        mixed_batch[key] = batch[key]
+                    else:
+                        mixed_batch[key] = torch.cat((mixed_batch[key], batch[key]), dim=0)
+
+            running_count += 1
+        
+        return mixed_batch
+        
     def ratio_aware_repetitive_roundrobin(self):
         """
         cycles through iterables but sample wise
@@ -297,32 +341,71 @@ class MixedARTKITTINYU(object):
 
         # Dataset Configurations
         config = edict(config)
-        config.workers = config.workers // 2
+        # config.workers = config.workers // 2 # Also allocate workers
         self.config = config
+
+        # Smallest Eats first: Making sure that there is at least batch size 1 for every dataset.
+        # First, check if the batch size is at least the number of datasets. If not, raise error.
+        self.batch_size = config.batch_size
+        if len(sample_ratio) < self.batch_size:
+            raise Exception("Error in MixedARTKITTINYU: Batch size cannot be less than the number of datasets")
+        if config.workers < len(sample_ratio):
+            raise Exception("Error in MixedARTKITTINYU: Number of workers cannot be less than the number of datasets")
+        
+        # Normalize the batch sizes across sample_ratios
+        tot = sum(sample_ratios.values())
+        self.normalized_ratios = {key: (values / tot) for key, values in sample_ratio.items()}
+        self.normalized_batches = {key: value * self.batch_size for key, value in self.normalized_ratios.items()}
+        self.normalized_workers = {key: value * config.workers  for key, value in self.normalized_ratios.items()}
+        self.sorted_normalized_batches= list(sorted(self.normalized_batches.items(), key=lambda x:x[1]))
+        self.sorted_normalized_workers= list(sorted(self.normalized_workers.items(), key=lambda x:x[1]))
+        final_batches = {}
+        final_workers = {}
+
+        # Assigning batches based on sorted normalized batches
+        for i, (k, num_samples) in enumerate(self.sorted_normalized_batches): # num_samples here is a float
+            if num_samples < 1:
+                # Round up the batch size to one
+                final_batches[k] = 1
+                # Eat away from the next batch
+                self.sorted_normalized_batches[i+1][1] -= (1 - num_samples) # Should always work because there is at least batch_size number of datasets
+            else:
+                final_batches[k] = num_samples//1 # floor of num_samples
+                
+        # Assigning workers based on sorted normalized workers
+        for i, (k, num_workers) in enumerate(self.sorted_normalized_workers): # num_workers here is a float
+            if num_workers < 1:
+                # Round up the worker count to one
+                final_workers[k] = 1
+                # Eat away from the next batch
+                self.sorted_normalized_workers[i+1][1] -= (1 - num_workers)
+            else:
+                final_workers[k] = num_workers//1 # floor of num_workers
+  
+        # Converting the list back into a dictionary
+        final_batches = dict(self.final_batches)
+        final_workers = dict(self.final_workers)
+        
+        # Getting the config for each dataset
         conf_list = {}
-        
-        for k in sample_ratio.keys():
+        for k in sample_per_batch.keys():
             conf_list[k] = change_dataset(edict(config), k) # This is not working for the ART Dataset. 
-            # How is Kitti fine not squished during training??
-            # When does the Resizing of Kitti Happens??
-
-        # Testing Dataset
-        art_test_conf = change_dataset(edict(config), 'art_test')
-
-        # Make art_test default for testing
-        self.config = config = art_test_conf
-        # img_size = self.config.get("img_size", None)
-        # img_size = img_size if self.config.get("do_input_resize", False) else None
-        # print(f"img_size: {img_size}")
+            conf_list[k].batch_size = final_batches[k] # Updating the adjusted batch size
+            conf_list[k].workers = final_workers[k] # Updating the adjusted worker count
+            print("Dataset {} has {} samples, {} batches, {} workers".format(k, len(conf_list[k])* conf_list[k].batch_size, len(conf_list[k]), conf_list[k].workers))
         
+        # Creating dataloaders
         if mode == 'train':
             dataloaders = {}
             for dataset_type, conf in conf_list.items():
                 dataloaders[dataset_type] = DepthDataLoader(conf, mode, device=device).data
-    
             # Ratio Aware Dataloader
             self.data = SampleRatioAwareDataLoader(dataloaders, ratios=sample_ratio)
         else:
+            # Testing Dataset
+            art_test_conf = change_dataset(edict(config), 'art_test')
+            art_test_conf.workers = art_test_conf.eval_workers
+            # Make art_test default for testing
             self.data = DepthDataLoader(art_test_conf, mode, device=device).data
 
 class MixedNYUKITTI(object):
