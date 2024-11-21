@@ -229,7 +229,7 @@ class BaseTrainer:
                         metrics, test_losses = self.validate()
                         # print("Validated: {}".format(metrics))
                         if self.should_log:
-                            if (metrics[self.metric_criterion] >= best_loss) and self.should_write:
+                            if (metrics[self.metric_criterion] > best_loss) and self.should_write:
                                 self.save_checkpoint(
                                     f"{self.config.experiment_id}_best.pt")
                                 best_loss = metrics[self.metric_criterion]
@@ -253,7 +253,7 @@ class BaseTrainer:
             metrics, test_losses = self.validate()
             # print("Validated: {}".format(metrics))
             if self.should_log:
-                if (metrics[self.metric_criterion] < best_loss) and self.should_write:
+                if (metrics[self.metric_criterion] > best_loss) and self.should_write:
                     self.save_checkpoint(
                         f"{self.config.experiment_id}_best.pt")
                     best_loss = metrics[self.metric_criterion]
@@ -264,8 +264,9 @@ class BaseTrainer:
         with torch.no_grad():
             losses_avg = RunningAverageDict()
             metrics_avg = RunningAverageDict()
+            idx_to_log = np.random.randint(0, len(self.test_loader))
             for i, batch in tqdm(enumerate(self.test_loader), desc=f"Epoch: {self.epoch + 1}/{self.config.epochs}. Loop: Validation", total=len(self.test_loader), disable=not is_rank_zero(self.config)):
-                metrics, losses = self.validate_on_batch(batch, val_step=i)
+                metrics, losses = self.validate_on_batch(batch, val_step=i, idx_to_log=idx_to_log)
 
                 if losses:
                     losses_avg.update(losses)
@@ -328,6 +329,27 @@ class BaseTrainer:
         scalar_field = {k: colorize(
             v, vmin=None, vmax=None, cmap=scalar_cmap) for k, v in scalar_field.items()}
         images = {**rgb, **depth, **scalar_field}
+        wimages = {
+            prefix+"Predictions": [wandb.Image(v, caption=k) for k, v in images.items()]}
+        wandb.log(wimages, step=self.step)
+        
+    def log_val_images(self, rgb: Dict[str, list] = {}, depth: Dict[str, list] = {}, val_fields:Dict[str, list]={}, scalar_field: Dict[str, list] = {}, prefix="", scalar_cmap="magma_r", min_depth=None, max_depth=None):
+        if not self.should_log:
+            return
+
+        if min_depth is None:
+            try:
+                min_depth = self.config.min_depth
+                max_depth = self.config.max_depth
+            except AttributeError:
+                min_depth = None
+                max_depth = None
+
+        depth = {k: colorize(v, vmin=min_depth, vmax=max_depth, cmap=scalar_cmap)
+                 for k, v in depth.items()}
+        scalar_field = {k: colorize(
+            v, vmin=None, vmax=None, cmap=scalar_cmap) for k, v in scalar_field.items()}
+        images = {**rgb, **depth, **scalar_field, **val_fields}
         wimages = {
             prefix+"Predictions": [wandb.Image(v, caption=k) for k, v in images.items()]}
         wandb.log(wimages, step=self.step)

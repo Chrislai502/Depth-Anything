@@ -47,11 +47,6 @@ def show_vstacked_images(batch_images):
     Args:
         batch_images (torch.Tensor): A batch of images with shape (B, C, H, W).
     """
-    # Unnormalize each image in the batch
-    unnormalize = T.Normalize(
-        mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
-        std=[1 / 0.229, 1 / 0.224, 1 / 0.225]
-    )
     # batch_images = torch.stack([unnormalize(img) for img in batch_images])  # Unnormalize all images
     batch_images = torch.stack([img for img in batch_images])  # Unnormalize all images
     
@@ -87,24 +82,33 @@ def test_data_loading(config, dataset_class, sample_ratio=None, mode="train"):
     else:
         data_loader = DepthDataLoader(config, mode, device=device).data
 
+
+    num_batches_to_test = 200
     # Iterate through batches to test data loading
+    exit(0)
     for i, batch in enumerate(data_loader):
         print(f"Batch {i + 1}")
         
-        # Display the vertically stacked images of the batch
-        if 'image' in batch:
-            print(f"  Displaying vertically stacked images from batch {i + 1}")
-            images = batch['image']  # Entire batch of images (B, C, H, W)
-            show_vstacked_images(images)
-
-        # Log shapes of other batch data
+        if isinstance(False, bool):
+            print( f"Batch {i + 1}/{num_batches_to_test} has no valid depth")
         for key, value in batch.items():
             if torch.is_tensor(value):
                 print(f"  {key}: shape {value.shape}")
+            # else:
+        # # Display the vertically stacked images of the batch
+        # if 'image' in batch:
+        #     print(f"  Displaying vertically stacked images from batch {i + 1}")
+        #     images = batch['image']  # Entire batch of images (B, C, H, W)
+        #     show_vstacked_images(images)
 
-        # Press a key to proceed to the next batch
-        print("Press a key to proceed to the next batch.")
-        # break  # Remove this break to process all batches
+        # # Log shapes of other batch data
+        # for key, value in batch.items():
+        #     if torch.is_tensor(value):
+        #         print(f"  {key}: shape {value.shape}")
+
+        # # Press a key to proceed to the next batch
+        # print("Press a key to proceed to the next batch.")
+        # # break  # Remove this break to process all batches
 
 if __name__ == '__main__':
     # Fix random seed for reproducibility

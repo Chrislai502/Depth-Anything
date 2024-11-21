@@ -98,7 +98,7 @@ def load_ckpt(config, model, checkpoint_dir="./checkpoints", ckpt_type="best"):
     print("Loaded weights from {0}".format(checkpoint))
     return model
 
-def main_worker(gpu, ngpus_per_node, config, eval_config):
+def main_worker(gpu, ngpus_per_node, config, eval_config, dataset):
     """
     Main function to set up and start training on a specific GPU.
 
@@ -129,8 +129,10 @@ def main_worker(gpu, ngpus_per_node, config, eval_config):
         print(f"Total parameters : {total_params}")
 
         # Create training and testing dataloaders
-        train_loader = MixedARTKITTINYU(config, "train").data
-        # train_loader = DepthDataLoader(config, "train").data
+        if dataset == "mix":
+            train_loader = MixedARTKITTINYU(config, "train").data
+        else:
+            train_loader = DepthDataLoader(config, "train").data
         test_loader = DepthDataLoader(eval_config, 'online_eval').data
         
         # Printing Trainloader and test loader information
@@ -222,9 +224,9 @@ if __name__ == '__main__':
         train_config.world_size = ngpus_per_node * train_config.world_size
 
         # Spawn a separate process for each GPU on the node for distributed training
-        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, train_config))
+        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, train_config, eval_config, args.dataset))
     else:
         # For non-distributed mode, if only one GPU, set GPU ID to 0
         if ngpus_per_node == 1:
             train_config.gpu = 0
-        main_worker(train_config.gpu, ngpus_per_node, train_config, eval_config)
+        main_worker(train_config.gpu, ngpus_per_node, train_config, eval_config, args.dataset)

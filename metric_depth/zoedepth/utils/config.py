@@ -124,7 +124,9 @@ DATASETS_CONFIG = {
         "do_random_rotate": True,
         "degree": 1.0,
         "do_kb_crop": True,
-        "do_art_crop": False,
+        "crop_remain": 160,
+        "art_width": 1018,
+        "do_art_crop": True,
         "garg_crop": True,
         "eigen_crop": False,
         "use_right": False,
@@ -133,7 +135,7 @@ DATASETS_CONFIG = {
     "kitti_test": {
         "dataset": "kitti",
         "min_depth": 0.001,
-        "max_depth": 80,
+        "max_depth": 120,
         "data_path": os.path.join(HOME_DIR, "Kitti/raw_data"),
         "gt_path": os.path.join(HOME_DIR, "Kitti/data_depth_annotated/val"),
         "filenames_file": "./train_test_inputs/kitti_eigen_train_files_with_gt.txt",
@@ -144,7 +146,7 @@ DATASETS_CONFIG = {
         "filenames_file_eval": "./train_test_inputs/kitti_eigen_test_files_with_gt.txt",
 
         "min_depth_eval": 1e-3,
-        "max_depth_eval": 80,
+        "max_depth_eval": 120,
 
         "do_random_rotate": False,
         "degree": 1.0,
@@ -309,7 +311,7 @@ COMMON_TRAINING_CONFIG = {
     "translate_prob": 0.2,
     "max_translation": 100,
 
-    "validate_every": 0.04,
+    "validate_every": 0.06,
     "log_images_every": 0.1,
     "prefetch": False,
 }
