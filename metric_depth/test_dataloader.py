@@ -85,7 +85,6 @@ def test_data_loading(config, dataset_class, sample_ratio=None, mode="train"):
 
     num_batches_to_test = 200
     # Iterate through batches to test data loading
-    exit(0)
     for i, batch in enumerate(data_loader):
         print(f"Batch {i + 1}")
         
@@ -122,7 +121,7 @@ if __name__ == '__main__':
     parser.add_argument("-m", "--model", type=str, default="zoedepth", help="Model name (default: synunet)")
     parser.add_argument("-d", "--dataset", type=str, default='mix', help="Dataset name (default: mix)")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size for testing (default: 4)")
-    parser.add_argument("--num_workers", type=int, default=8, help="Number of workers for data loading (default: 2)")
+    parser.add_argument("--num_workers", type=int, default=16, help="Number of workers for data loading (default: 2)")
 
     args, unknown_args = parser.parse_known_args()
 

@@ -53,6 +53,7 @@ from .vkitti2 import get_vkitti2_loader
 # from .art import get_art_loader
 
 from .preprocess import CropParams, get_white_border, get_black_border
+from zoedepth.models.builder import build_model
 
 
 def _is_pil_image(img):
@@ -552,13 +553,48 @@ class DataLoadPreprocess(Dataset):
             # Default to a simple image reader
             self.reader = ImReader()
 
+        # Initialize Depth Anything model
+        if config.dense_depth:
+            self.model = build_model(config)
+
+    def get_depth_from_prediction(self, pred):
+        if isinstance(pred, torch.Tensor):
+            pred = pred  # pass
+        elif isinstance(pred, (list, tuple)):
+            pred = pred[-1]
+        elif isinstance(pred, dict):
+            pred = pred['metric_depth'] if 'metric_depth' in pred else pred['out']
+        else:
+            raise NotImplementedError(f"Unknown output type {type(pred)}")
+        return pred
+
+    @torch.no_grad()
     def postprocess(self, sample):
         """
         Placeholder for any postprocessing that needs to be applied to each sample.
         By default, it just returns the sample as-is.
         """
-        return sample
+        
+        images = sample['image']
+        try :
+            focal = sample.get('focal', torch.Tensor([self.config.focal]).cuda())  
+        except:
+            raise Exception("Focal not found in sample")
+            # focal = sample.get('focal', torch.Tensor([self.config.focal]).cuda())
+        # focal = sample.get('focal', torch.Tensor([715.0873]).cuda())  
+        print(sample.keys())
+        print(images.shape)
+        pred1 = self.model(images, dataset=sample['dataset'][0] , focal=focal)
+        pred1 = self.get_depth_from_prediction(pred1)
 
+        pred2 = self.model(torch.flip(images, [3]), dataset=sample['dataset'][0], focal=focal)
+        pred2 = self.get_depth_from_prediction(pred2)
+        pred2 = torch.flip(pred2, [3])
+
+        mean_pred = 0.5 * (pred1 + pred2)
+        sample['depth'] = mean_pred
+        return sample
+  
     def __getitem__(self, idx):
         """
         Retrieves a data sample at a specified index.
@@ -714,12 +750,13 @@ class DataLoadPreprocess(Dataset):
             sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth, 'mask': mask}
             if not sample['has_valid_depth'] or isinstance(sample["mask"], int):
                 return {'image': False, 'depth': False, 'focal': False, 'has_valid_depth': False, 'mask': False}
-                
-        sample = self.postprocess(sample)
+        
         sample['dataset'] = self.config.dataset
-        sample = {**sample, 'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1]}
         if self.transform:
             sample = self.transform(sample)
+        sample = {**sample, 'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1]}
+            
+        sample = self.postprocess(sample)
         return sample
 
     def rotate_image(self, image, angle, flag=Image.BILINEAR):

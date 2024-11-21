@@ -314,6 +314,9 @@ COMMON_TRAINING_CONFIG = {
     "validate_every": 0.06,
     "log_images_every": 0.1,
     "prefetch": False,
+    
+    "dense_depth": True,
+    "pretrained_resource": "local::./depth_anything_finetune/ZoeDepthv1_19-Nov_21-22-2626a9246a8f_best.pt"
 }
 
 
