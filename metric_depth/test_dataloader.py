@@ -12,6 +12,9 @@ os.environ["PYOPENGL_PLATFORM"] = "egl"
 os.environ["WANDB_START_METHOD"] = "thread"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+import torch.multiprocessing as mp
+mp.set_start_method('spawn', force=True)
+
 def fix_random_seed(seed: int):
     """
     Fix random seed for reproducibility
@@ -92,6 +95,7 @@ def test_data_loading(config, dataset_class, sample_ratio=None, mode="train"):
             print( f"Batch {i + 1}/{num_batches_to_test} has no valid depth")
         for key, value in batch.items():
             if torch.is_tensor(value):
+                print(f"QIOUEFQUIOWEFGHIQUWOEHFUIQWEHFIOUQWEHFIUOWEHFIOUqnwfoiqnwefoiqewnfoiqefnqoiefnqoeiwf")
                 print(f"  {key}: shape {value.shape}")
             # else:
         # # Display the vertically stacked images of the batch

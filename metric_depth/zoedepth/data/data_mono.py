@@ -55,7 +55,22 @@ from .vkitti2 import get_vkitti2_loader
 from .preprocess import CropParams, get_white_border, get_black_border
 from zoedepth.models.builder import build_model
 
+_worker_model = None
+_worker_config = None
 
+def worker_init_fn(worker_id):
+    global _worker_model, _worker_config
+    
+    # Get worker-specific configuraition(already passed as a part of the Dataset)
+    worker_info = torch.utils.data.get_worker_info()
+    dataset = worker_info.dataset
+    config = dataset.config
+    
+    # Initialize the model using the config
+    _worker_model = build_model(config)
+    _worker_model.cuda()
+    _worker_model.eval()
+    
 def _is_pil_image(img):
     return isinstance(img, Image.Image)
 
@@ -145,14 +160,24 @@ class DepthDataLoader(object):
             else:
                 self.train_sampler = None
 
-            self.data = DataLoader(self.training_samples,
-                                   batch_size=config.batch_size,
-                                   shuffle=(self.train_sampler is None),
-                                   num_workers=config.workers,
-                                   pin_memory=True,
-                                   persistent_workers=True,
-                                #    prefetch_factor=2,
-                                   sampler=self.train_sampler)
+            if config.dense_depth:
+                self.data = DataLoader(self.training_samples,
+                                    batch_size=config.batch_size,
+                                    shuffle=(self.train_sampler is None),
+                                    num_workers=config.workers,
+                                    pin_memory=True,
+                                    persistent_workers=True,
+                                    worker_init_fn = worker_init_fn,
+                                    sampler=self.train_sampler)
+            else:
+                self.data = DataLoader(self.training_samples,
+                                    batch_size=config.batch_size,
+                                    shuffle=(self.train_sampler is None),
+                                    num_workers=config.workers,
+                                    pin_memory=True,
+                                    persistent_workers=True,
+                                    #    prefetch_factor=2,
+                                    sampler=self.train_sampler)
 
         elif mode == 'online_eval':
             self.testing_samples = DataLoadPreprocess(config, mode, transform=transform)
@@ -161,15 +186,32 @@ class DepthDataLoader(object):
                 self.eval_sampler = None
             else:
                 self.eval_sampler = None
-            self.data = DataLoader(self.testing_samples, 1,
-                                   shuffle=kwargs.get("shuffle", False),
-                                   num_workers=1,
-                                   pin_memory=False,
-                                   sampler=self.eval_sampler)
+                
+            if config.dense_depth:
+                self.data = DataLoader(self.training_samples,
+                                    batch_size=config.batch_size,
+                                    shuffle=(self.train_sampler is None),
+                                    num_workers=config.workers,
+                                    pin_memory=True,
+                                    persistent_workers=True,
+                                    worker_init_fn = worker_init_fn,
+                                    sampler=self.train_sampler)
+            else:
+                self.data = DataLoader(self.testing_samples, 1,
+                                    shuffle=kwargs.get("shuffle", False),
+                                    num_workers=1,
+                                    pin_memory=False,
+                                    sampler=self.eval_sampler)
 
         elif mode == 'test':
             self.testing_samples = DataLoadPreprocess(config, mode, transform=transform)
-            self.data = DataLoader(self.testing_samples,
+            if config.dense_depth:
+                self.data = DataLoader(self.testing_samples,
+                        1, 
+                        worker_init_fn=worker_init_fn,
+                        shuffle=kwargs.get("shuffle", False), num_workers=1,)
+            else:
+                self.data = DataLoader(self.testing_samples,
                                    1, shuffle=kwargs.get("shuffle", False), num_workers=1)
 
         else:
@@ -553,46 +595,49 @@ class DataLoadPreprocess(Dataset):
             # Default to a simple image reader
             self.reader = ImReader()
 
-        # Initialize Depth Anything model
-        if config.dense_depth:
-            self.model = build_model(config)
-
     def get_depth_from_prediction(self, pred):
         if isinstance(pred, torch.Tensor):
-            pred = pred  # pass
+            pred = pred.cpu()  # pass
         elif isinstance(pred, (list, tuple)):
-            pred = pred[-1]
+            pred = [p.cpu() for p in pred]
         elif isinstance(pred, dict):
-            pred = pred['metric_depth'] if 'metric_depth' in pred else pred['out']
+            # pred = pred['metric_depth'] if 'metric_depth' in pred else pred['out']
+            return {k: v.cpu() for k, v in pred.items()}  # Handle dictionaries
         else:
             raise NotImplementedError(f"Unknown output type {type(pred)}")
-        return pred
+        # return pred
 
     @torch.no_grad()
     def postprocess(self, sample):
+        # print(sample.keys())
         """
         Placeholder for any postprocessing that needs to be applied to each sample.
         By default, it just returns the sample as-is.
         """
-        
-        images = sample['image']
+        global _worker_model
+        images = sample['image'].unsqueeze(0).cuda()
+
         try :
-            focal = sample.get('focal', torch.Tensor([self.config.focal]).cuda())  
+            # focal = sample.get('focal', torch.Tensor([self.config.focal]).cuda())  
+            # focal = sample.get('focal', torch.Tensor([715.0873])).cuda()
+            if sample['focal'] is not None:
+                focal = torch.Tensor([sample['focal']]).cuda()
+            else:
+                focal = torch.Tensor([715.0873]).cuda()
         except:
             raise Exception("Focal not found in sample")
-            # focal = sample.get('focal', torch.Tensor([self.config.focal]).cuda())
-        # focal = sample.get('focal', torch.Tensor([715.0873]).cuda())  
-        print(sample.keys())
-        print(images.shape)
-        pred1 = self.model(images, dataset=sample['dataset'][0] , focal=focal)
+
+        pred1 = _worker_model(images, dataset=sample['dataset'][0] , focal=focal)
         pred1 = self.get_depth_from_prediction(pred1)
+        images = sample['image'].squeeze(0).cpu()
+        
+        del focal
+        torch.cuda.empty_cache()  # Clear GPU memory cache
 
-        pred2 = self.model(torch.flip(images, [3]), dataset=sample['dataset'][0], focal=focal)
-        pred2 = self.get_depth_from_prediction(pred2)
-        pred2 = torch.flip(pred2, [3])
+        # mean_pred = 0.5 * (pred1 + pred2)
+        # mean_pred
 
-        mean_pred = 0.5 * (pred1 + pred2)
-        sample['depth'] = mean_pred
+        sample['depth'] = pred1
         return sample
   
     def __getitem__(self, idx):
@@ -755,7 +800,7 @@ class DataLoadPreprocess(Dataset):
         if self.transform:
             sample = self.transform(sample)
         sample = {**sample, 'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1]}
-            
+        
         sample = self.postprocess(sample)
         return sample
 
