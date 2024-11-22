@@ -36,6 +36,7 @@ from .base_trainer import BaseTrainer
 from torchvision import transforms
 from PIL import Image
 import numpy as np
+from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
 
 class Trainer(BaseTrainer):
     def __init__(self, config, model, train_loader, test_loader=None, device=None):
@@ -57,12 +58,14 @@ class Trainer(BaseTrainer):
         batch[n]["image"].shape : ...
         batch[n]["depth"].shape : ...
         """
-
+        # images = batch['image']
         images, depths_gt = batch['image'].to(
             self.device), batch['depth'].to(self.device)
+        # iamges = images.to(self.device)
         dataset = batch['dataset'][0]
 
         b, c, h, w = images.size()
+        
         mask = batch["mask"].to(self.device).to(torch.bool)
 
         losses = {}
@@ -70,7 +73,10 @@ class Trainer(BaseTrainer):
         with amp.autocast('cuda', enabled=self.config.use_amp):
 
             output = self.model(images)
-            pred_depths = output['metric_depth']
+            if self.config.model == "depthanything":
+                pred_depths = output
+            else:
+                pred_depths = output['metric_depth']
 
             l_si, pred = self.silog_loss(
                 pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
@@ -112,9 +118,13 @@ class Trainer(BaseTrainer):
     
     @torch.no_grad()
     def eval_infer(self, x):
+        print(x.shape)
         with amp.autocast('cuda', enabled=self.config.use_amp):
             m = self.model.module if self.config.multigpu else self.model
-            pred_depths = m(x)['metric_depth']
+            if self.config.model == "depthanything":
+                pred_depths = m(x)
+            else:
+                pred_depths = m(x)['metric_depth']
         return pred_depths
 
     @torch.no_grad()
@@ -190,3 +200,4 @@ class Trainer(BaseTrainer):
                             min_depth=DATASETS_CONFIG[dataset]['min_depth'], max_depth=DATASETS_CONFIG[dataset]['max_depth'])
 
         return metrics, losses
+

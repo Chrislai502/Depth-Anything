@@ -52,6 +52,12 @@ from .vkitti import get_vkitti_loader
 from .vkitti2 import get_vkitti2_loader
 # from .art import get_art_loader
 
+import sys
+current_file_path = os.path.abspath(__file__)  # Absolute path to train_mix_infer.py
+root_dir = os.path.abspath(os.path.join(current_file_path, '..', '..', '..', '..'))  # Go two levels up
+sys.path.append(root_dir)  # Add the root directory to sys.path
+from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
+from torchvision.transforms import Compose
 from .preprocess import CropParams, get_white_border, get_black_border
 
 
@@ -128,8 +134,8 @@ class DepthDataLoader(object):
             return
 
         img_size = self.config.get("img_size", None)
-        img_size = img_size if self.config.get(
-            "do_input_resize", False) else None
+        
+        img_size = img_size if self.config.get("do_input_resize", False) else None
 
         if transform is None:
             transform = preprocessing_transforms(mode, size=img_size, config=config)
@@ -801,6 +807,8 @@ class ToTensor(object):
         self.normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) if do_normalize else nn.Identity()
         self.size = size
+        self.preparefornet = None
+        print("THe size: ", size)
         if size is not None:
             self.resize = transforms.Resize(size=size)
         else:
@@ -858,7 +866,9 @@ class ToTensor(object):
             image = augmentation(image)
         image = self.normalize(image)
         image = self.resize(image)
-
+        
+        if self.preparefornet is not None:
+            image = self.preparefornet(image)
         if self.mode == 'test':
             return {'image': image, 'focal': focal}
 

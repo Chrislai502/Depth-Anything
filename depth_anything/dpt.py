@@ -137,14 +137,19 @@ class DPTHead(nn.Module):
         
         
 class DPT_DINOv2(nn.Module):
-    def __init__(self, encoder='vitl', features=256, out_channels=[256, 512, 1024, 1024], use_bn=False, use_clstoken=False, localhub=True):
+    def __init__(self, encoder='vitl', features=256, out_channels=[256, 512, 1024, 1024], use_bn=False, use_clstoken=False, localhub=True, prefix=None):
         super(DPT_DINOv2, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
         
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
-            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False)
+            if prefix is not None:
+                import os
+                path = os.path.join(prefix, 'torchhub/facebookresearch_dinov2_main')
+            else:
+                path = 'torchhub/facebookresearch_dinov2_main'
+            self.pretrained = torch.hub.load(path, 'dinov2_{:}14'.format(encoder), source='local', pretrained=False)
         else:
             self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder))
         
@@ -166,6 +171,44 @@ class DPT_DINOv2(nn.Module):
         return depth.squeeze(1)
 
 
+    # def get_lr_params(self, lr):
+    #     param_conf
+        
+    def get_lr_params(self, lr):
+        """
+        Learning rate configuration for different layers of the model
+        Args:
+            lr (float) : Base learning rate
+        Returns:
+            list : list of parameters to optimize and their learning rates, in the format required by torch optimizers.
+        """
+        param_conf = []
+        if self.train_midas:
+            if self.encoder_lr_factor > 0:
+                param_conf.append({'params': self.core.get_enc_params_except_rel_pos(
+                ), 'lr': lr / self.encoder_lr_factor})
+
+            if self.pos_enc_lr_factor > 0:
+                param_conf.append(
+                    {'params': self.core.get_rel_pos_params(), 'lr': lr / self.pos_enc_lr_factor})
+
+            # midas_params = self.core.core.scratch.parameters()
+            midas_params = self.core.core.depth_head.parameters()
+            midas_lr_factor = self.midas_lr_factor
+            param_conf.append(
+                {'params': midas_params, 'lr': lr / midas_lr_factor})
+
+        remaining_modules = []
+        for name, child in self.named_children():
+            if name != 'core':
+                remaining_modules.append(child)
+        remaining_params = itertools.chain(
+            *[child.parameters() for child in remaining_modules])
+
+        param_conf.append({'params': remaining_params, 'lr': lr})
+
+        return param_conf
+    
 class DepthAnything(DPT_DINOv2, PyTorchModelHubMixin):
     def __init__(self, config):
         super().__init__(**config)
@@ -184,4 +227,5 @@ if __name__ == '__main__':
     model = DepthAnything.from_pretrained("LiheYoung/depth_anything_{:}14".format(args.encoder))
     
     print(model)
+    
     

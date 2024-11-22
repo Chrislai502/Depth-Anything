@@ -14,6 +14,7 @@ metric_depth/data
 output
 wandb
 *.mp4
+depth_vis
 
 ## PyTorch
 

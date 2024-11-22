@@ -68,7 +68,7 @@ DATASETS_CONFIG = {
 
         "do_random_rotate": True,
         "degree": 1.0,
-        "crop_remain": 160, # Total height after cropping top and bottom, centered
+        "crop_remain": 154, # Total height after cropping top and bottom, centered
         # "crop_bound": 550, # Total padding to remove from top & bottom, centered
         "do_art_crop": True,
         "do_kb_crop": False,
@@ -97,7 +97,7 @@ DATASETS_CONFIG = {
 
         "do_random_rotate": False,
         "degree": 1.0,
-        "crop_remain": 160,
+        "crop_remain": 154,
         "do_art_crop": True,
         "do_kb_crop": False,
         "garg_crop": False,
@@ -124,7 +124,7 @@ DATASETS_CONFIG = {
         "do_random_rotate": True,
         "degree": 1.0,
         "do_kb_crop": True,
-        "crop_remain": 160,
+        "crop_remain": 154,
         "art_width": 1018,
         "do_art_crop": True,
         "garg_crop": True,
@@ -435,14 +435,15 @@ def get_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
     """
 
 
-    check_choices("Model", model_name, ["zoedepth", "zoedepth_nk"])
+    check_choices("Model", model_name, ["zoedepth", "zoedepth_nk", "depthanything"])
     check_choices("Mode", mode, ["train", "infer", "eval"])
     if mode == "train":
         check_choices("Dataset", dataset, ["nyu", "kitti", "art", "mix", None])
 
     config = flatten({**COMMON_CONFIG, **COMMON_TRAINING_CONFIG})
+    if model_name == "depthanything":
+        config["project"] = "DepthAnything"
     config = update_model_config(config, mode, model_name)
-
     # update with model version specific config
     version_name = overwrite_kwargs.get("version_name", config["version_name"])
     config = update_model_config(config, mode, model_name, version_name)
