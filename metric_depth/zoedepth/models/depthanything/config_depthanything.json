@@ -19,6 +19,9 @@
         "img_size": [154, 1008],
         "do_input_resize": true,
         "checkpoint" : "./checkpoints/depth_anything_vits14.pth",
+        "teacher_checkpoint" : "local::./depth_anything_finetune/ZoeDepthv1_20-Nov_07-18-ee3ea52718cf_best.pt",
+        "teacher_checkpoint_model": "zoedepth",
+        "teacher_anchors": [0.001, 115.0],
         "encoder" :"vits"
     },
     

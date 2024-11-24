@@ -37,6 +37,8 @@ from torchvision import transforms
 from PIL import Image
 import numpy as np
 from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
+from zoedepth.models.builder import build_model
+from zoedepth.utils.config import get_config
 
 class Trainer(BaseTrainer):
     def __init__(self, config, model, train_loader, test_loader=None, device=None):
@@ -47,6 +49,15 @@ class Trainer(BaseTrainer):
         self.grad_loss = GradL1Loss()
         self.scaler = amp.GradScaler('cuda', enabled=self.config.use_amp)
 
+        # Create Best model for inference
+        if config.teacher_checkpoint is None:
+            raise ValueError("teacher_checkpoint for Depth Anything Inference model cannot be None")
+        overwrite = {"pretrained_resource": config.teacher_checkpoint, "bs": config.bs}
+        zoe_best_config = get_config(config.teacher_checkpoint_model, "eval", config.dataset, **overwrite)
+        self.zoe_model = build_model(zoe_best_config)
+        self.zoe_model.to(self.device)
+        self.zoe_model.eval()
+        
     def train_on_batch(self, batch, train_step):
         """
         Expects a batch of images and depth as input
@@ -59,9 +70,15 @@ class Trainer(BaseTrainer):
         batch[n]["depth"].shape : ...
         """
         # images = batch['image']
-        images, depths_gt = batch['image'].to(self.device), batch['depth'].to(self.device)
-        
+        # Infer with the Zoe Model
+        images = batch['image'].to(self.device)
         dataset = batch['dataset'][0]
+        focal = batch['focal'].to(self.device)
+        
+        with torch.inference_mode():
+            depths_gt = self.zoe_model(images, dataset=dataset, focal=focal)
+            depths_gt = self.get_depth_from_prediction(depths_gt) # not replacing dataset mem due to possible distributed race conditions
+        # images, depths_gt = batch['image'].to(self.device), batch['depth'].to(self.device)
 
         b, c, h, w = images.size()
         
@@ -70,7 +87,8 @@ class Trainer(BaseTrainer):
         losses = {}
 
         with amp.autocast('cuda', enabled=self.config.use_amp):
-
+            
+            # Infer with the Inference Model
             output = self.model(images)
             if self.config.model == "depthanything":
                 pred_depths = output
@@ -116,6 +134,23 @@ class Trainer(BaseTrainer):
         return losses
     
     
+    def get_depth_from_prediction(self, pred):
+        if isinstance(pred, torch.Tensor):
+            pred = pred  # pass
+        elif isinstance(pred, (list, tuple)):
+            pred = pred[-1]
+        elif isinstance(pred, dict):
+            pred = pred['metric_depth'] if 'metric_depth' in pred else pred['out']
+        else:
+            raise NotImplementedError(f"Unknown output type {type(pred)}")
+        return pred
+    
+    @torch.no_grad()
+    def zoe_infer(self, model, images, **kwargs):
+        pred1 = model(images, **kwargs)
+        pred1 = self.get_depth_from_prediction(pred1)
+        return pred1
+        
     @torch.no_grad()
     def eval_infer(self, x):
         with amp.autocast('cuda', enabled=self.config.use_amp):
