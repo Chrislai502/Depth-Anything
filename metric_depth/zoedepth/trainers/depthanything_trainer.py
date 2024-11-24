@@ -43,7 +43,7 @@ class Trainer(BaseTrainer):
         super().__init__(config, model, train_loader,
                          test_loader=test_loader, device=device)
         self.device = device
-        self.silog_loss = SILogLoss(model_name=config.model)
+        self.silog_loss = SILogLoss()
         self.grad_loss = GradL1Loss()
         self.scaler = amp.GradScaler('cuda', enabled=self.config.use_amp)
 
