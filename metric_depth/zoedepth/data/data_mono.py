@@ -548,7 +548,7 @@ class DataLoadPreprocess(Dataset):
                 self.filenames = f.readlines()
 
         # Initialize a tensor transformation method specific to the mode
-        self.to_tensor = ToTensor(mode)
+        # self.to_tensor = ToTensor(mode)
         
         # Initialize the image reader object based on configuration
         if config.use_shared_dict:
@@ -620,18 +620,18 @@ class DataLoadPreprocess(Dataset):
                 depth_gt = depth_gt.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
                 image = image.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
 
-            # Handle boundaries in the NYU dataset
-            if self.config.dataset == 'nyu' and self.config.avoid_boundary:
-                crop_params = get_white_border(np.array(image, dtype=np.uint8))
-                image = image.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
-                depth_gt = depth_gt.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
-                # Reflect padding to maintain original dimensions
-                image = np.pad(image, ((crop_params.top, h - crop_params.bottom), 
-                                       (crop_params.left, w - crop_params.right), (0, 0)), mode='reflect')
-                image = Image.fromarray(image)
-                depth_gt = np.pad(depth_gt, ((crop_params.top, h - crop_params.bottom), 
-                                             (crop_params.left, w - crop_params.right)), 'constant', constant_values=0)
-                depth_gt = Image.fromarray(depth_gt)
+            # # Handle boundaries in the NYU dataset
+            # if self.config.dataset == 'nyu' and self.config.avoid_boundary:
+            #     crop_params = get_white_border(np.array(image, dtype=np.uint8))
+            #     image = image.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
+            #     depth_gt = depth_gt.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
+            #     # Reflect padding to maintain original dimensions
+            #     image = np.pad(image, ((crop_params.top, h - crop_params.bottom), 
+            #                            (crop_params.left, w - crop_params.right), (0, 0)), mode='reflect')
+            #     image = Image.fromarray(image)
+            #     depth_gt = np.pad(depth_gt, ((crop_params.top, h - crop_params.bottom), 
+            #                                  (crop_params.left, w - crop_params.right)), 'constant', constant_values=0)
+            #     depth_gt = Image.fromarray(depth_gt)
 
             # Random rotation augmentation
             if self.config.do_random_rotate and self.config.aug:
@@ -658,7 +658,6 @@ class DataLoadPreprocess(Dataset):
 
             # Additional preprocessing for training
             image, depth_gt = self.train_preprocess(image, depth_gt)
-            mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
 
         else:
             # Loading for online evaluation or inference
@@ -690,29 +689,31 @@ class DataLoadPreprocess(Dataset):
                 depth_gt = np.asarray(depth_gt, dtype=np.float32)
                 depth_gt = np.expand_dims(depth_gt, axis=2)
                 depth_gt /= (1000.0 if self.config.dataset == 'nyu' else 256.0)
-                mask = np.logical_and(depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
-
 
         # Apply Art dataset-specific cropping.
-        
-        if self.config.do_art_crop and has_valid_depth:
-            height, width, _ = image.shape
-            bottom_margin = (height - self.config.crop_remain) // 2
-            top_margin = height - bottom_margin
+        if has_valid_depth:
+            if self.config.do_art_crop:
+                # If the width and height is too small, resize instead
+                if image.shape[0] < self.config.crop_remain or image.shape[1] < self.config.art_width:
+                    # For image and gt depth, resize. Image using bilinear, depth using nearest neighbor
+                    image = cv2.resize(image, (self.config.art_width, self.config.crop_remain), interpolation=cv2.INTER_LINEAR)
+                    depth_gt = cv2.resize(depth_gt, (self.config.art_width, self.config.crop_remain), interpolation=cv2.INTER_NEAREST)
+                else:
+                    height, width, _ = image.shape
+                    
+                    bottom_margin = (height - self.config.crop_remain) // 2
+                    top_margin = height - bottom_margin
+                    
+                    # # Also Crop Width if Kitti dataset
+                    left_margin = (width - self.config.art_width) // 2
+                    right_margin = width - left_margin
+
+                    # Crop both image and depth ground truth
+                    depth_gt = depth_gt[bottom_margin:top_margin, left_margin:right_margin, ...] 
+                    image = image[bottom_margin:top_margin, left_margin:right_margin, ...]
+                    # mask = mask[:, bottom_margin:top_margin, left_margin:right_margin, ...]
             
-            # Also Crop Width if Kitti dataset
-            if self.config.dataset == 'kitti':
-                left_margin = (width - self.config.art_width) // 2
-                right_margin = width - left_margin
-            else:
-                left_margin = 0
-                right_margin = width
-            
-            # Crop both image and depth ground truth
-            depth_gt = depth_gt[bottom_margin:top_margin, left_margin:right_margin, ...] 
-            image = image[bottom_margin:top_margin, left_margin:right_margin, ...]
-            mask = mask[:, bottom_margin:top_margin, left_margin:right_margin, ...]
-            
+            mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
         
         if self.mode == 'train':
             sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'mask': mask, **sample} # NOT SURE HOW TRAINER HANDLES INVALID SAMPLES
@@ -808,9 +809,8 @@ class ToTensor(object):
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) if do_normalize else nn.Identity()
         self.size = size
         self.preparefornet = None
-        print("THe size: ", size)
         if size is not None:
-            self.resize = transforms.Resize(size=size)
+            self.resize = transforms.Resize(size=size, interpolation=Image.BILINEAR)
         else:
             self.resize = nn.Identity()
             

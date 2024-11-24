@@ -43,7 +43,7 @@ class Trainer(BaseTrainer):
         super().__init__(config, model, train_loader,
                          test_loader=test_loader, device=device)
         self.device = device
-        self.silog_loss = SILogLoss()
+        self.silog_loss = SILogLoss(model_name=config.model)
         self.grad_loss = GradL1Loss()
         self.scaler = amp.GradScaler('cuda', enabled=self.config.use_amp)
 
@@ -59,9 +59,8 @@ class Trainer(BaseTrainer):
         batch[n]["depth"].shape : ...
         """
         # images = batch['image']
-        images, depths_gt = batch['image'].to(
-            self.device), batch['depth'].to(self.device)
-        # iamges = images.to(self.device)
+        images, depths_gt = batch['image'].to(self.device), batch['depth'].to(self.device)
+        
         dataset = batch['dataset'][0]
 
         b, c, h, w = images.size()
@@ -75,6 +74,7 @@ class Trainer(BaseTrainer):
             output = self.model(images)
             if self.config.model == "depthanything":
                 pred_depths = output
+                pred_depths = pred_depths.unsqueeze(1)
             else:
                 pred_depths = output['metric_depth']
 
@@ -118,7 +118,6 @@ class Trainer(BaseTrainer):
     
     @torch.no_grad()
     def eval_infer(self, x):
-        print(x.shape)
         with amp.autocast('cuda', enabled=self.config.use_amp):
             m = self.model.module if self.config.multigpu else self.model
             if self.config.model == "depthanything":

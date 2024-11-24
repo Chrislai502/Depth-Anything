@@ -67,10 +67,10 @@ DATASETS_CONFIG = {
         "max_depth_eval": 120.0,
 
         "do_random_rotate": True,
-        "degree": 1.0,
-        "crop_remain": 154, # Total height after cropping top and bottom, centered
-        # "crop_bound": 550, # Total padding to remove from top & bottom, centered
+        "degree": 1.0,        
         "do_art_crop": True,
+        "crop_remain": 154, # Total height after cropping top and bottom, centered
+        "art_width": 1008,
         "do_kb_crop": False,
         "garg_crop": False,
         "eigen_crop": False,
@@ -99,6 +99,7 @@ DATASETS_CONFIG = {
         "degree": 1.0,
         "crop_remain": 154,
         "do_art_crop": True,
+        "art_width": 1008,
         "do_kb_crop": False,
         "garg_crop": False,
         "eigen_crop": False,
@@ -125,7 +126,7 @@ DATASETS_CONFIG = {
         "degree": 1.0,
         "do_kb_crop": True,
         "crop_remain": 154,
-        "art_width": 1018,
+        "art_width": 1008,
         "do_art_crop": True,
         "garg_crop": True,
         "eigen_crop": False,
