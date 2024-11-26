@@ -125,11 +125,14 @@ class GradL1Loss(nn.Module):
 
         grad_gt = grad(target)
         grad_pred = grad(input)
-        mask_g = grad_mask(mask)
-
-        loss = nn.functional.l1_loss(grad_pred[0][mask_g], grad_gt[0][mask_g])
-        loss = loss + \
-            nn.functional.l1_loss(grad_pred[1][mask_g], grad_gt[1][mask_g])
+        if mask is not None:
+            mask_g = grad_mask(mask)
+            loss = nn.functional.l1_loss(grad_pred[0][mask_g], grad_gt[0][mask_g])
+            loss = loss + \
+                nn.functional.l1_loss(grad_pred[1][mask_g], grad_gt[1][mask_g])
+        else: # for dense Depth
+            loss = nn.functional.l1_loss(grad_pred[0], grad_gt[0])
+            loss = loss + nn.functional.l1_loss(grad_pred[1], grad_gt[1])
         if not return_interpolated:
             return loss
         return loss, intr_input

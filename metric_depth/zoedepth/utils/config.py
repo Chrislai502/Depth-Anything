@@ -85,20 +85,20 @@ DATASETS_CONFIG = {
         "max_depth": 120.0,
         "data_path": os.path.join(HOME_DIR, "ART/"),
         "gt_path": os.path.join(HOME_DIR, "ART/"),
-        "filenames_file": "./train_test_inputs/art_eval_KMS_ks_2024_08_24.txt",
+        "filenames_file": "./train_test_inputs/art_eval_KMS_ks_2024_08_24-16_43_10_9_dense_filenames.txt",
         "input_height": 710,
         "input_width": 1018,  # 704
         "data_path_eval": os.path.join(HOME_DIR, "ART/"),
         "gt_path_eval": os.path.join(HOME_DIR, "ART/"),
-        "filenames_file_eval": "./train_test_inputs/art_eval_KMS_ks_2024_08_24-16_43_10_9_filenames.txt",
+        "filenames_file_eval": "./train_test_inputs/art_eval_KMS_ks_2024_08_24-16_43_10_9_dense_filenames.txt",
 
         "min_depth_eval": 1e-3,
         "max_depth_eval": 120.0,
 
         "do_random_rotate": False,
         "degree": 1.0,
-        "crop_remain": 154,
         "do_art_crop": True,
+        "crop_remain": 154,
         "art_width": 1008,
         "do_kb_crop": False,
         "garg_crop": False,
@@ -312,7 +312,8 @@ COMMON_TRAINING_CONFIG = {
     "translate_prob": 0.2,
     "max_translation": 100,
 
-    "validate_every": 0.06,
+    "validate_every": 0.50,
+    # "validate_every": 0.01,
     "log_images_every": 0.1,
     "prefetch": False,
 }
@@ -443,7 +444,7 @@ def get_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
 
     config = flatten({**COMMON_CONFIG, **COMMON_TRAINING_CONFIG})
     if model_name == "depthanything":
-        config["project"] = "DepthAnything"
+        config["project"] = "DepthAnything-Infer"
     config = update_model_config(config, mode, model_name)
     # update with model version specific config
     version_name = overwrite_kwargs.get("version_name", config["version_name"])
@@ -481,11 +482,13 @@ def get_config(model_name, mode='train', dataset=None, **overwrite_kwargs):
 
     if mode == "train":
         orig_dataset = dataset
+        if dataset is not None:
+            config['project'] = f"MonoDepth3-{orig_dataset}"  # Set project for wandb
+            # config['project'] = f"MonoDepth3-mix"  # Set project for wandb
         if dataset == "mix":
             dataset = 'kitti'  # Use nyu as default for mix. Dataset config is changed accordingly while loading the dataloader
-        if dataset is not None:
-            # config['project'] = f"MonoDepth3-{orig_dataset}"  # Set project for wandb
-            config['project'] = f"MonoDepth3-mix"  # Set project for wandb
+        if model_name == "depthanything":
+            config["project"] = "DepthAnything-Infer"
 
     if dataset is not None:
         config['dataset'] = dataset

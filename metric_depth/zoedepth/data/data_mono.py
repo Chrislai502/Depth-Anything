@@ -693,26 +693,42 @@ class DataLoadPreprocess(Dataset):
         # Apply Art dataset-specific cropping.
         if has_valid_depth:
             if self.config.do_art_crop:
-                # If the width and height is too small, resize instead
-                if image.shape[0] < self.config.crop_remain or image.shape[1] < self.config.art_width:
+
+                # Image and depth map needs to be processed differently
+                # Due to Dense Depth pre-cropped groundtruths
+
+                # Process Image
+                height, width, _ = image.shape
+                crop_height = min(height, self.config.crop_remain)
+                crop_width = min(width, self.config.art_width)
+                bottom_margin = (height - crop_height) // 2
+                top_margin = height - bottom_margin
+                left_margin = (width - crop_width) // 2
+                right_margin = width - left_margin
+
+                # Crop Image
+                image = image[bottom_margin:top_margin, left_margin:right_margin, ...]
+
+                if height < self.config.crop_remain or width < self.config.art_width:
                     # For image and gt depth, resize. Image using bilinear, depth using nearest neighbor
                     image = cv2.resize(image, (self.config.art_width, self.config.crop_remain), interpolation=cv2.INTER_LINEAR)
-                    depth_gt = cv2.resize(depth_gt, (self.config.art_width, self.config.crop_remain), interpolation=cv2.INTER_NEAREST)
-                else:
-                    height, width, _ = image.shape
-                    
-                    bottom_margin = (height - self.config.crop_remain) // 2
-                    top_margin = height - bottom_margin
-                    
-                    # # Also Crop Width if Kitti dataset
-                    left_margin = (width - self.config.art_width) // 2
-                    right_margin = width - left_margin
 
-                    # Crop both image and depth ground truth
-                    depth_gt = depth_gt[bottom_margin:top_margin, left_margin:right_margin, ...] 
-                    image = image[bottom_margin:top_margin, left_margin:right_margin, ...]
-                    # mask = mask[:, bottom_margin:top_margin, left_margin:right_margin, ...]
-            
+                # Process groundtruth
+                height, width, _ = depth_gt.shape
+                crop_height = min(height, self.config.crop_remain)
+                crop_width = min(width, self.config.art_width)
+                bottom_margin = (height - crop_height) // 2
+                top_margin = height - bottom_margin
+                left_margin = (width - crop_width) // 2
+                right_margin = width - left_margin
+
+                # Crop both image and depth ground truth
+                depth_gt = depth_gt[bottom_margin:top_margin, left_margin:right_margin, ...] 
+
+                if height < self.config.crop_remain or width < self.config.art_width:
+                    # For image and gt depth, resize. Image using bilinear, depth using nearest neighbor
+                    depth_gt = cv2.resize(depth_gt, (self.config.art_width, self.config.crop_remain), interpolation=cv2.INTER_NEAREST)
+                
             mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
         
         if self.mode == 'train':

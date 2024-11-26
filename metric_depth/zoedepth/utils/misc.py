@@ -283,12 +283,22 @@ def compute_errors_2d(gt, pred, valid_mask=None, save_err_img=True, max_depth_ev
     global global_timer_compute_errors, global_timer_colorize, global_timer_metrics_calculation
 
     # Mask invalid regions in gt and pred (THIS TAKES 2 SECONDS...)
-    gt_filtered = np.where(valid_mask, gt, np.nan)  # Set invalid areas to NaN for visual clarity
-    pred_filtered = np.where(valid_mask, pred, 0)
+    if valid_mask is not None:
+        gt_filtered = np.where(valid_mask, gt, np.nan)  # Set invalid areas to NaN for visual clarity
+        pred_filtered = np.where(valid_mask, pred, 0)
 
-    # Flatten valid values for error calculations
-    gt_1d = gt[valid_mask]
-    pred_1d = pred[valid_mask]
+        # Flatten valid values for error calculations
+        gt_1d = gt[valid_mask]
+        pred_1d = pred[valid_mask]
+
+    else:
+        gt_filtered = gt
+        pred_filtered = pred
+
+        # Flatten values for error calculations
+        gt_1d = gt.flatten()
+        pred_1d = pred.flatten()
+        print(f"gt_1d shape: {gt_1d.shape}")
 
 
     # Calculate accuracy metrics
@@ -324,11 +334,17 @@ def compute_errors_2d(gt, pred, valid_mask=None, save_err_img=True, max_depth_ev
         color_map_img = colorize3D(pred, min_depth_eval, max_depth_eval, cmap='magma_r')
         
         delta_img = color_map_img.copy()
-        delta_img[~a1_2d & valid_mask] =  [163,24,24]# red
+        if valid_mask is not None:
+            delta_img[~a1_2d & valid_mask] =  [163,24,24]# red
+        else:
+            delta_img[~a1_2d] =  [163,24,24]
 
         # Creating abs_rel image
         abs_rel_img = colorize3D(abs_rel_2d, 0, 10.0, cmap='cool')
-        abs_rel_img[~valid_mask] = color_map_img[~valid_mask]
+        if valid_mask is not None:
+            abs_rel_img[~valid_mask] = color_map_img[~valid_mask]
+        else:
+            abs_rel_img = color_map_img
 
     return dict(a1=a1, a2=a2, a3=a3, abs_rel=abs_rel, rmse=rmse, log_10=log_10, rmse_log=rmse_log,
                 silog=silog, sq_rel=sq_rel), dict(val_d1=delta_img, abs_err=abs_rel_img)
