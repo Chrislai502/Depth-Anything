@@ -38,7 +38,7 @@ HOME_DIR = os.path.expanduser("./data")
 COMMON_CONFIG = {
     "dense_depth": False,
     # TODO: can turn off this flag if needed
-    "use_segmentation": False,
+    "use_segmentation": True,
     "save_dir": os.path.expanduser("./depth_anything_finetune"),
     "project": "ZoeDepth",
     "tags": '',

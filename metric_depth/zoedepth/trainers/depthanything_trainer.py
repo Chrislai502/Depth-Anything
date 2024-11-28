@@ -40,7 +40,7 @@ from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
 from zoedepth.models.builder import build_model
 from zoedepth.utils.config import get_config
 
-# from mmseg.apis import inference_model, init_model, show_result_pyplot
+from mmseg.apis import inference_model, init_model, show_result_pyplot
 
 class Trainer(BaseTrainer):
     def __init__(self, config, model, train_loader, test_loader=None, device=None):
@@ -68,7 +68,7 @@ class Trainer(BaseTrainer):
             # initialize segmentation model using the config and checkpoint file 
             self._device = torch.device('cuda:0' if self.device == 0 else 'cpu')
             self.segmentation_model = init_model(config.segmentation_config, config.segmentation_checkpoint, device=self._device)
-            
+            self.segmentation_class = config.segmentation_class
         self.thres_min, self.thres_max = config.teacher_anchors
         
     def train_on_batch(self, batch, train_step):
@@ -94,6 +94,7 @@ class Trainer(BaseTrainer):
                 depths_gt = self.clip_and_invert(depths_gt) 
                 # depths_gt = torch.clamp(depths_gt, min=self.thres_min, max = self.thres_max)
         else: # Else, prepare mask and depth map
+            # mask shape: [16, 1, height, width]
             mask = batch["mask"].to(self.device).to(torch.bool)
             depths_gt = batch['depth'].to(self.device)
             depths_gt = self.clip_and_invert(depths_gt) 
@@ -101,10 +102,31 @@ class Trainer(BaseTrainer):
 
         losses = {}
         
+        batch_segmentation_results = []
+        
+        # stores masks of shape (batch_size, height, width)
+        batch_segmentation_masks = torch.zeros((b, h, w), dtype=torch.bool, device=images.device)
         if self.use_segmentation:
-            # if using segmentation, create a segmentation map for the batch 
-            batch_segmentation_result = inference_model(self.segmentation_model, images, device=self._device)
-            breakpoint()
+            images_np = images.cpu().numpy()
+            # batch implementation is not supposed for inference_model function
+            batch_size = images.size(0)
+            for i in range(batch_size):
+                # converting img to numpy
+                _img = images_np[i]
+                # expected input shape is (h, w, c)
+                _img = _img.transpose(1, 2, 0)
+                single_img_segmentation_result = inference_model(self.segmentation_model, _img)
+                batch_segmentation_results.append(single_img_segmentation_result) 
+                
+                # getting the index of the requested segmentation class 
+                segmentation_class_index = self.segmentation_model.dataset_meta['classes'].index(self.segmentation_class)
+                
+                # creating the segmentation mask for the specific label
+                segmentation_mask = (single_img_segmentation_result.pred_sem_seg.data.cpu().numpy() == segmentation_class_index)
+                
+                batch_segmentation_masks[i] = torch.tensor(segmentation_mask.reshape((h, w)), dtype=torch.bool, device=images.device)
+
+        batch_segmentation_masks = batch_segmentation_masks.unsqueeze(1)
 
         with amp.autocast('cuda', enabled=self.config.use_amp):
             
@@ -119,7 +141,16 @@ class Trainer(BaseTrainer):
                 l_si, pred = self.silog_loss(
                     pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
             
+            if self.use_segmentation:
+                seg_l_si, pred = self.silog_loss(
+                    pred_depths, depths_gt, mask=batch_segmentation_masks, interpolate=True, return_interpolated=True)
+            
             loss = self.config.w_si * l_si
+            
+            if self.use_segmentation:
+                loss += self.config.w_si * seg_l_si
+                losses["seg_" + self.silog_loss.name] = seg_l_si
+            
             losses[self.silog_loss.name] = l_si
 
             if self.config.w_grad > 0:

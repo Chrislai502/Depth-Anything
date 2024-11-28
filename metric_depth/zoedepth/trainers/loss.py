@@ -59,11 +59,17 @@ class SILogLoss(nn.Module):
         if target.ndim == 3:
             target = target.unsqueeze(1)
 
+
+        # ashwin - debugging the usage and the details of mask
+        # breakpoint()
         if mask is not None:
             if mask.ndim == 3:
                 mask = mask.unsqueeze(1)
-
+                
             input = input[mask]
+            
+            # TODO: Weigh the targets before masking
+            
             target = target[mask]
 
         with amp.autocast('cuda', enabled=False):  # amp causes NaNs in this loss function

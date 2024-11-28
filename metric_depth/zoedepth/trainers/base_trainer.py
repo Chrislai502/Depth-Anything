@@ -152,9 +152,11 @@ class BaseTrainer:
         run_id = f"{dt.now().strftime('%d-%h_%H-%M')}-{self.config.uid}"
         self.config.run_id = run_id
         self.config.experiment_id = f"{self.config.name}{self.config.version_name}_{run_id}"
+        print(f"Experiment ID: {self.config.experiment_id}")
         self.should_write = ((not self.config.distributed)
                              or self.config.rank == 0)
         self.should_log = self.should_write  # and logging
+        # self.should_log = False
         if self.should_log:
             tags = self.config.tags.split(
                 ',') if self.config.tags != '' else None
