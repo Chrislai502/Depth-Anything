@@ -15,6 +15,9 @@ output
 wandb
 *.mp4
 depth_vis
+*.png
+stats.txt
+semseg
 
 ## PyTorch
 

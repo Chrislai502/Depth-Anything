@@ -94,7 +94,77 @@ class RunningAverageDict:
             return None
         return {key: value.get_value() for key, value in self._dict.items()}
 
+import numpy as np
+from collections import defaultdict
+class RunningStats:
+    """Tracks running statistics for a single variable."""
+    def __init__(self):
+        self.values = []  # Store values for statistics
 
+    def append(self, value):
+        """Add a new value to the running stats."""
+        if value is not None:  # Ignore None values
+            self.values.append(value)
+
+    def mean(self):
+        """Compute the mean of the values."""
+        return np.mean(self.values) if self.values else None
+
+    def stddev(self):
+        """Compute the standard deviation of the values."""
+        return np.std(self.values, ddof=1) if len(self.values) > 1 else None
+
+    def median(self):
+        """Compute the median of the values."""
+        return np.median(self.values) if self.values else None
+
+    def min(self):
+        """Compute the minimum value."""
+        return np.min(self.values) if self.values else None
+
+    def max(self):
+        """Compute the maximum value."""
+        return np.max(self.values) if self.values else None
+
+    def count(self):
+        """Return the number of values."""
+        return len(self.values)
+
+    def summary(self):
+        """Return a dictionary summarizing all statistics."""
+        return {
+            "mean": self.mean(),
+            "stddev": self.stddev(),
+            "median": self.median(),
+            "min": self.min(),
+            "max": self.max(),
+            "count": self.count(),
+        }
+
+
+class RunningStatsDict:
+    """Tracks running statistics for multiple variables stored as a dictionary."""
+    def __init__(self):
+        self._stats = defaultdict(RunningStats)  # Dictionary of RunningStats objects
+
+    def update(self, new_dict):
+        """Update the stats with a new dictionary of values."""
+        if new_dict is None:
+            return
+
+        for key, value in new_dict.items():
+            self._stats[key].append(value)
+
+    def get_value(self):
+        """Return a dictionary with all running statistics for each key."""
+        return {key: stats.summary() for key, stats in self._stats.items()}
+
+    def __str__(self):
+        """Pretty-print the stats."""
+        stats_str = "\n".join(f"{key}: {value.summary()}" for key, value in self._stats.items())
+        return f"RunningStatsDict(\n{stats_str}\n)"
+    
+    
 def colorize(value, vmin=None, vmax=None, cmap='gray_r', invalid_val=-99, invalid_mask=None, background_color=(128, 128, 128, 255), gamma_corrected=False, value_transform=None):
     """Converts a depth map to a color image.
 
@@ -284,6 +354,7 @@ def compute_errors_2d(gt, pred, valid_mask=None, save_err_img=True, max_depth_ev
 
     # Mask invalid regions in gt and pred (THIS TAKES 2 SECONDS...)
     if valid_mask is not None:
+        
         gt_filtered = np.where(valid_mask, gt, np.nan)  # Set invalid areas to NaN for visual clarity
         pred_filtered = np.where(valid_mask, pred, 0)
 
@@ -311,7 +382,7 @@ def compute_errors_2d(gt, pred, valid_mask=None, save_err_img=True, max_depth_ev
     a3 = (thresh_1d < 1.25 ** 3).mean()
     a1 = (thresh_1d < 1.25).mean()
 
-    abs_rel_2d = np.absolute(gt - pred)
+    abs_rel_2d = (pred - gt)
     abs_rel = (np.abs(gt_1d - pred_1d)).mean()
 
     # Rest can be done in 1d. Not interested anymore.
@@ -331,7 +402,7 @@ def compute_errors_2d(gt, pred, valid_mask=None, save_err_img=True, max_depth_ev
     if save_err_img:
 
         # Creating the delta accuracy image
-        color_map_img = colorize3D(pred, min_depth_eval, max_depth_eval, cmap='magma_r')
+        color_map_img = colorize3D(pred, min_depth_eval, max_depth_eval, cmap='magma')
         
         delta_img = color_map_img.copy()
         if valid_mask is not None:
@@ -340,7 +411,7 @@ def compute_errors_2d(gt, pred, valid_mask=None, save_err_img=True, max_depth_ev
             delta_img[~a1_2d] =  [163,24,24]
 
         # Creating abs_rel image
-        abs_rel_img = colorize3D(abs_rel_2d, 0, 10.0, cmap='cool')
+        abs_rel_img = colorize3D(abs_rel_2d, -10, 10.0, cmap='cool')
         if valid_mask is not None:
             abs_rel_img[~valid_mask] = color_map_img[~valid_mask]
         else:
@@ -413,7 +484,6 @@ def compute_metrics(gt, pred, interpolate=True, garg_crop=False, eigen_crop=True
         min_depth_eval = config.min_depth_eval
         max_depth_eval = config.max_depth_eval
         # max_depth_eval = 300
-        print("MAX DEPTH EVAL: ", max_depth_eval)
 
     # If ground truth and prediction sizes do not match, and interpolation is requested, interpolate prediction
     if gt.shape[-2:] != pred.shape[-2:] and interpolate:

@@ -219,69 +219,22 @@ class SampleRatioAwareDataLoader(object):
     This dataloader samples from multiple datasets according to specified ratios.
     If a dataset is exhausted before others, it resets (restarts) so the ratios are maintained.
     '''
-    # def __init__(self, dataloaders:dict, normalized_ratios:dict):
-        
-    #     self.dataloaders = dataloaders
-
-    #     # # Normalize the ratios
-    #     # tot = sum(ratios.values())
-    #     # min_ratio = min(ratios.values())
-    #     # self.normalized_ratios = {key: value / tot for key, value in ratios.items()}
-    #     # ratios = {key: value / min_ratio for key, value in ratios.items()} # Make the smallest ratio 1
-
-    #     # # Determine the smallest dataset in terms of length
-    #     self.smallest_dataset_key = min(self.dataloaders, key=lambda k: len(self.dataloaders[k]))
-    #     self.smallest_dataset_len = len(self.dataloaders[self.smallest_dataset_key])
-
-    #     # # Logging some dataset metrics
-    #     # num_samples = 0
-    #     # num_batches = 0
-    #     # for k in self.dataloaders.keys():
-    #     #     loader = self.dataloaders[k]
-    #     #     print("Dataset {} has {} samples, {} batches".format(k, len(loader)* loader.batch_size, len(loader)))
-    #     #     num_samples += len(loader) * loader.batch_size
-    #     #     num_batches += len(loader)
-
-    #     # # Calculating Dataloader size
-    #     self.dataloader_size = int(sum([v * self.smallest_dataset_len for v in normalized_ratios.values()])) # dataloader size
-
-    #     # Whole dataset will have this many samples
-    #     # print("Whole Unnormalized dataset will have total {} samples and {} batches".format(num_samples, num_batches))
-    #     print("Dataloader Presumed Normalized dataset will have total {} batches".format(self.dataloader_size))
-    #     print("DEBUG: Normalized Ratios are: {}".format(normalized_ratios))
 
     def __init__(self, dataloaders:dict, normalized_ratios:dict):
         
         self.dataloaders = dataloaders
 
         # Normalize the ratios
-        # tot = sum(ratios.values())
-        # min_ratio = min(ratios.values())
         self.normalized_ratios = normalized_ratios
-        # ratios = {key: value / min_ratio for key, value in ratios.items()} # Make the smallest ratio 1
 
-        # # Determine the smallest dataset in terms of length
+        # Determine the smallest dataset in terms of length
         self.smallest_dataset_key = min(self.dataloaders, key=lambda k: len(self.dataloaders[k]))
         self.smallest_dataset_len = len(self.dataloaders[self.smallest_dataset_key])
 
-        # # Logging some dataset metrics
-        # num_samples = 0
-        # num_batches = 0
-        # for k in self.dataloaders.keys():
-        #     loader = self.dataloaders[k]
-        #     print("Dataset {} has {} samples, {} batches".format(k, len(loader)* loader.batch_size, len(loader)))
-        #     num_samples += len(loader) * loader.batch_size
-        #     num_batches += len(loader)
-
-        # # Calculating Dataloader size
+        # Calculating Dataloader size
         self.dataloader_size = int(sum([v * self.smallest_dataset_len for v in normalized_ratios.values()])) # dataloader size
 
-        # # Get ART Dataset Width and height
-        # _, _, art_height, art_width = next(iter(self.dataloaders['art']))['image'].shape
-        # _, _, kitti_height, kitti_width = next(iter(self.dataloaders['kitti']))['image'].shape
-
         # Whole dataset will have this many samples
-        # print("Whole Unnormalized dataset will have total {} samples and {} batches".format(num_samples, num_batches))
         print("Dataloader Presumed Normalized dataset will have total {} batches".format(self.dataloader_size))
         print("DEBUG: Normalized Ratios are: {}".format(normalized_ratios))
 
@@ -541,7 +494,11 @@ class DataLoadPreprocess(Dataset):
         # Load filenames based on mode (training or evaluation).
         # If mode is 'online_eval', load from `filenames_file_eval`, otherwise from `filenames_file`.
         if mode == 'online_eval':
-            with open(config.filenames_file_eval, 'r') as f:
+            if config.dense_depth:
+                eval_filename = config.filenames_file_eval_dense
+            else:
+                eval_filename = config.filenames_file_eval
+            with open(eval_filename, 'r') as f:
                 self.filenames = f.readlines()
         else:
             with open(config.filenames_file, 'r') as f:
@@ -619,19 +576,6 @@ class DataLoadPreprocess(Dataset):
                 # Crop both image and depth ground truth
                 depth_gt = depth_gt.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
                 image = image.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
-
-            # # Handle boundaries in the NYU dataset
-            # if self.config.dataset == 'nyu' and self.config.avoid_boundary:
-            #     crop_params = get_white_border(np.array(image, dtype=np.uint8))
-            #     image = image.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
-            #     depth_gt = depth_gt.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
-            #     # Reflect padding to maintain original dimensions
-            #     image = np.pad(image, ((crop_params.top, h - crop_params.bottom), 
-            #                            (crop_params.left, w - crop_params.right), (0, 0)), mode='reflect')
-            #     image = Image.fromarray(image)
-            #     depth_gt = np.pad(depth_gt, ((crop_params.top, h - crop_params.bottom), 
-            #                                  (crop_params.left, w - crop_params.right)), 'constant', constant_values=0)
-            #     depth_gt = Image.fromarray(depth_gt)
 
             # Random rotation augmentation
             if self.config.do_random_rotate and self.config.aug:
@@ -728,7 +672,11 @@ class DataLoadPreprocess(Dataset):
                 if height < self.config.crop_remain or width < self.config.art_width:
                     # For image and gt depth, resize. Image using bilinear, depth using nearest neighbor
                     depth_gt = cv2.resize(depth_gt, (self.config.art_width, self.config.crop_remain), interpolation=cv2.INTER_NEAREST)
-                
+            
+            # Performing Shifting on Art Dataset
+            if self.config.dataset[:3] == 'art':
+                depth_gt = depth_gt - self.config.art_pred_shift # Will be added back on for eval
+                # The below statement will take care of negative values.
             mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
         
         if self.mode == 'train':

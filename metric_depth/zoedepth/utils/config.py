@@ -36,6 +36,9 @@ ROOT = pathlib.Path(__file__).parent.parent.resolve()
 HOME_DIR = os.path.expanduser("./data")
 
 COMMON_CONFIG = {
+    "dense_depth": False,
+    # TODO: can turn off this flag if needed
+    "use_segmentation": False,
     "save_dir": os.path.expanduser("./depth_anything_finetune"),
     "project": "ZoeDepth",
     "tags": '',
@@ -61,10 +64,13 @@ DATASETS_CONFIG = {
         "input_width": 1018,  # 704
         "data_path_eval": os.path.join(HOME_DIR, "ART/"),
         "gt_path_eval": os.path.join(HOME_DIR, "ART/"),
-        "filenames_file_eval": "./train_test_inputs/art_eval_KMS_ks_2024_08_24.txt",
+        "filenames_file_eval": "./train_test_inputs/art_2_bag_train_IMS_filenames.txt",
+        # "filenames_file_eval": "./train_test_inputs/art_eval_KMS_ks_2024_08_24.txt",
+        "filenames_file_eval_dense": "./train_test_inputs/art_eval_KMS_ks_2024_08_24-16_43_10_9_dense_filenames.txt",
 
         "min_depth_eval": 1e-3,
-        "max_depth_eval": 120.0,
+        "max_depth_eval": 115.0,
+        "art_pred_shift": 8.0, 
 
         "do_random_rotate": True,
         "degree": 1.0,        
@@ -82,7 +88,7 @@ DATASETS_CONFIG = {
         "track": "KMS",
         "bag" : "ks_2024_08_24-16_43_10_9",
         "min_depth": 0.01,
-        "max_depth": 120.0,
+        "max_depth": 115.0,
         "data_path": os.path.join(HOME_DIR, "ART/"),
         "gt_path": os.path.join(HOME_DIR, "ART/"),
         "filenames_file": "./train_test_inputs/art_eval_KMS_ks_2024_08_24-16_43_10_9_dense_filenames.txt",
@@ -90,10 +96,12 @@ DATASETS_CONFIG = {
         "input_width": 1018,  # 704
         "data_path_eval": os.path.join(HOME_DIR, "ART/"),
         "gt_path_eval": os.path.join(HOME_DIR, "ART/"),
-        "filenames_file_eval": "./train_test_inputs/art_eval_KMS_ks_2024_08_24-16_43_10_9_dense_filenames.txt",
-
+        "filenames_file_eval": "./train_test_inputs/art_eval_KMS_ks_2024_08_24-16_43_10_9_filenames.txt",
+        "filenames_file_eval_dense": "./train_test_inputs/art_eval_KMS_ks_2024_08_24-16_43_10_9_dense_filenames.txt",
+        
         "min_depth_eval": 1e-3,
-        "max_depth_eval": 120.0,
+        "max_depth_eval": 115.0,
+        "art_pred_shift": 8.0, 
 
         "do_random_rotate": False,
         "degree": 1.0,
@@ -120,7 +128,7 @@ DATASETS_CONFIG = {
         "filenames_file_eval": "./train_test_inputs/kitti_eigen_test_files_with_gt.txt", # Differentiate train and val using this
 
         "min_depth_eval": 1e-3,
-        "max_depth_eval": 120.0,
+        "max_depth_eval": 115.0,
 
         "do_random_rotate": True,
         "degree": 1.0,
@@ -312,8 +320,8 @@ COMMON_TRAINING_CONFIG = {
     "translate_prob": 0.2,
     "max_translation": 100,
 
-    "validate_every": 0.50,
-    # "validate_every": 0.01,
+    # "validate_every": 0.1,
+    "validate_every": 0.5,
     "log_images_every": 0.1,
     "prefetch": False,
 }
