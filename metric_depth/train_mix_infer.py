@@ -124,12 +124,12 @@ def main_worker(gpu, ngpus_per_node, config, eval_config, dataset):
         # Build the model according to the config
         assert config.encoder in ['vits', 'vitb', 'vitl']
         prefix = "../"
-        if config.encoder == 'vits':
+        if config.encoder == 'vits': # 24.79 M Params
             model = DPT_DINOv2(encoder='vits', features=64, out_channels=[48, 96, 192, 384], localhub='localhub', prefix=prefix)
-        elif config.encoder == 'vitb':
-            model = DPT_DINOv2(encoder='vitb', features=128, out_channels=[96, 192, 384, 768], localhub='localhub')
-        else:
-            model = DPT_DINOv2(encoder='vitl', features=256, out_channels=[256, 512, 1024, 1024], localhub='localhub')
+        elif config.encoder == 'vitb': # 97M Params
+            model = DPT_DINOv2(encoder='vitb', features=128, out_channels=[96, 192, 384, 768], localhub='localhub', prefix=prefix)
+        else: # 330M + Params
+            model = DPT_DINOv2(encoder='vitl', features=256, out_channels=[256, 512, 1024, 1024], localhub='localhub', prefix=prefix)
 
         # Load model weights from checkpoint if specified in config
         model = load_ckpt(config, model)
@@ -172,7 +172,7 @@ if __name__ == '__main__':
     # Parse command-line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--model", type=str, default="depthanything")
-    parser.add_argument("-d", "--dataset", type=str, default='mix')
+    parser.add_argument("-d", "--dataset", type=str, default='mix') # art, kitti
     parser.add_argument("--trainer", type=str, default=None)
 
     # Parse known and unknown arguments
@@ -185,8 +185,7 @@ if __name__ == '__main__':
         overwrite_kwargs["trainer"] = args.trainer
 
     # Load configuration based on model, mode, and dataset arguments
-    base_config = get_config(args.model, "train", args.dataset, **overwrite_kwargs)
-    train_config = base_config
+    train_config = get_config(args.model, "train", args.dataset, **overwrite_kwargs)
     eval_config = get_config(args.model, "eval", 'art_test', **overwrite_kwargs)
 
     # Initialize a shared dictionary if specified in the config for multiprocessing

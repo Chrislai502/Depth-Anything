@@ -40,6 +40,8 @@ from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
 from zoedepth.models.builder import build_model
 from zoedepth.utils.config import get_config
 
+# from mmseg.apis import inference_model, init_model, show_result_pyplot
+
 class Trainer(BaseTrainer):
     def __init__(self, config, model, train_loader, test_loader=None, device=None):
         super().__init__(config, model, train_loader,
@@ -48,16 +50,25 @@ class Trainer(BaseTrainer):
         self.silog_loss = SILogLoss()
         self.grad_loss = GradL1Loss()
         self.scaler = amp.GradScaler('cuda', enabled=self.config.use_amp)
-
-        # Create Best model for inference
-        if config.teacher_checkpoint is None:
-            raise ValueError("teacher_checkpoint for Depth Anything Inference model cannot be None")
-        overwrite = {"pretrained_resource": config.teacher_checkpoint, "bs": config.bs}
-        zoe_best_config = get_config(config.teacher_checkpoint_model, "eval", config.dataset, **overwrite)
-        self.zoe_model = build_model(zoe_best_config)
-        self.zoe_model.to(self.device)
-        self.zoe_model.eval()
+        self.dense_depth = config.dense_depth
+        self.use_segmentation = config.use_segmentation
         
+        # Create Best model for inference
+        if self.dense_depth:
+            if config.teacher_checkpoint is None:
+                raise ValueError("teacher_checkpoint for Depth Anything Inference model cannot be None")
+            overwrite = {"pretrained_resource": config.teacher_checkpoint, "bs": config.bs}
+            zoe_best_config = get_config(config.teacher_checkpoint_model, "eval", config.dataset, **overwrite)
+            self.zoe_model = build_model(zoe_best_config)
+            self.zoe_model.to(self.device)
+            self.zoe_model.eval()
+            
+        # TODO: Segmentation model Initialization
+        if config.use_segmentation:
+            # initialize segmentation model using the config and checkpoint file 
+            self._device = torch.device('cuda:0' if self.device == 0 else 'cpu')
+            self.segmentation_model = init_model(config.segmentation_config, config.segmentation_checkpoint, device=self._device)
+            
         self.thres_min, self.thres_max = config.teacher_anchors
         
     def train_on_batch(self, batch, train_step):
@@ -71,68 +82,57 @@ class Trainer(BaseTrainer):
         batch[n]["image"].shape : ...
         batch[n]["depth"].shape : ...
         """
-        # images = batch['image']
         # Infer with the Zoe Model
         images = batch['image'].to(self.device)
         dataset = batch['dataset'][0]
         focal = batch['focal'].to(self.device)
         
-        with torch.no_grad():
-            depths_gt = self.zoe_model(images, dataset=dataset, focal=focal)
-            depths_gt = self.get_depth_from_prediction(depths_gt) # not replacing dataset mem due to possible distributed race conditions
+        if self.dense_depth:
+            with torch.no_grad():
+                depths_gt = self.zoe_model(images, dataset=dataset, focal=focal)
+                depths_gt = self.get_depth_from_prediction(depths_gt) # not replacing dataset mem due to possible distributed race conditions
+                depths_gt = self.clip_and_invert(depths_gt) 
+                # depths_gt = torch.clamp(depths_gt, min=self.thres_min, max = self.thres_max)
+        else: # Else, prepare mask and depth map
+            mask = batch["mask"].to(self.device).to(torch.bool)
+            depths_gt = batch['depth'].to(self.device)
             depths_gt = self.clip_and_invert(depths_gt) 
-            depths_gt = torch.clamp(depths_gt, min=self.thres_min, max = self.thres_max)
         b, c, h, w = images.size()
-        
-        # mask = batch["mask"].to(self.device).to(torch.bool)
 
         losses = {}
+        
+        if self.use_segmentation:
+            # if using segmentation, create a segmentation map for the batch 
+            batch_segmentation_result = inference_model(self.segmentation_model, images, device=self._device)
+            breakpoint()
 
         with amp.autocast('cuda', enabled=self.config.use_amp):
             
             # Infer with the Inference Model
-            # images.requires_grad = True
             output = self.model(images)
-            # output.retain_grad()
-            # images.retain_grad()
-            # pred_depths = self.undo_normalization(output)
             pred_depths = output
             pred_depths = pred_depths.unsqueeze(1)
-            # pred_depths = self.undo_normalization(pred_depths)
-
-            # l_si, pred = self.silog_loss(
-            #     pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
-            l_si, pred = self.silog_loss(
-                pred_depths, depths_gt, interpolate=True, return_interpolated=True)
+            if self.dense_depth:
+                l_si, pred = self.silog_loss(
+                    pred_depths, depths_gt, interpolate=True, return_interpolated=True)
+            else:           
+                l_si, pred = self.silog_loss(
+                    pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
+            
             loss = self.config.w_si * l_si
             losses[self.silog_loss.name] = l_si
 
             if self.config.w_grad > 0:
-                l_grad = self.grad_loss(pred, depths_gt)
-                # l_grad = self.grad_loss(pred, depths_gt, mask=mask)
+                if self.dense_depth:
+                    l_grad = self.grad_loss(pred, depths_gt)
+                else:
+                    l_grad = self.grad_loss(pred, depths_gt, mask=mask)
                 loss = loss + self.config.w_grad * l_grad
                 losses[self.grad_loss.name] = l_grad
             else:
                 l_grad = torch.Tensor([0])
 
         self.scaler.scale(loss).backward()
-
-        # # Compute gradient magnitudes
-        # grad_norms = []
-        # for name, param in self.model.named_parameters():
-        #     if param.grad is not None:
-        #         grad_norm = param.grad.norm().item()
-        #         grad_norms.append(grad_norm)
-
-        # # Print loss and gradient magnitude
-        # print(f"  Loss magnitude: {loss.item()}")
-        # print(f"  Length of gradient: {len(grad_norms)}")
-        # print(f"  Gradient magnitudes (L2 norm) first and last layer: {grad_norms[0]}, {grad_norms[-1]}\n")
-        # print(f"  Output gradient DL/DX: {output.grad.norm().item()}")
-        # print(f"  Input gradient DL/DX?: {images.grad.norm().item()}")
-
-        # # raise notImplementedError
-        # raise( NotImplementedError )
         
         if self.config.clip_grad > 0:
             self.scaler.unscale_(self.optimizer)
@@ -143,7 +143,8 @@ class Trainer(BaseTrainer):
 
         if self.should_log and (self.step % int(self.config.log_images_every * self.iters_per_epoch)) == 0:
             # -99 is treated as invalid depth in the log_images function and is colored grey.
-            # depths_gt[torch.logical_not(mask)] = -99
+            if not self.dense_depth:
+                depths_gt[torch.logical_not(mask)] = -99
             idx = np.random.randint(0, b)
             self.log_images(rgb={"Input": images[idx, ...]}, depth={"GT": depths_gt[idx], "PredictedMono": pred[idx]}, prefix="Train",
                             min_depth=DATASETS_CONFIG[dataset]['min_depth'], max_depth=DATASETS_CONFIG[dataset]['max_depth'],
@@ -163,23 +164,25 @@ class Trainer(BaseTrainer):
         images = batch['image'].to(self.device)
         depths_gt = self.clip_and_invert(batch['depth'])
         depths_gt = depths_gt.to(self.device)
-        # depths_gt = batch['depth'].to(self.device)
+        depths_gt = depths_gt.squeeze().unsqueeze(0).unsqueeze(0)
         dataset = batch['dataset'][0]
-        # mask = batch["mask"].to(self.device)
+
+        if not self.dense_depth:
+            mask = batch["mask"].to(self.device).to(torch.bool)
+            mask = mask.squeeze().unsqueeze(0).unsqueeze(0)
+            
         if 'has_valid_depth' in batch:
             if not batch['has_valid_depth']:
                 return None, None
-
-        depths_gt = depths_gt.squeeze().unsqueeze(0).unsqueeze(0)
-        # mask = mask.squeeze().unsqueeze(0).unsqueeze(0)
         pred_depths = self.eval_infer(images)
         pred_depths = pred_depths.squeeze().unsqueeze(0).unsqueeze(0)
-        # pred_depths = self.undo_normalization(pred_depths)
 
         with amp.autocast('cuda', enabled=self.config.use_amp):
-            # l_depth = self.silog_loss(
-            #     pred_depths, depths_gt, mask=mask.to(torch.bool), interpolate=True)
-            l_depth = self.silog_loss(pred_depths, depths_gt, interpolate=True)
+            if not self.dense_depth:
+                l_depth = self.silog_loss(
+                    pred_depths, depths_gt, mask=mask.to(torch.bool), interpolate=True)
+            else:
+                l_depth = self.silog_loss(pred_depths, depths_gt, interpolate=True)
         # If ground truth and prediction sizes do not match, and interpolation is requested, interpolate prediction
         if depths_gt.shape[-2:] != pred_depths.shape[-2:]:
             pred_depths = nn.functional.interpolate(pred_depths, depths_gt.shape[-2:], mode='bilinear', align_corners=True)
@@ -187,18 +190,17 @@ class Trainer(BaseTrainer):
         if not self.should_log:
             metrics = compute_metrics(depths_gt, pred_depths, **self.config)
         else:
-            # metrics, val_fields= compute_metrics_and_save(depths_gt, pred_depths, mask, 
-            #                                               save_err_img=False, 
-            #                                               max_depth_eval=config.max_depth, 
-            #                                               min_depth_eval=0.1)
-            metrics, val_fields= compute_metrics_and_save(depths_gt, pred_depths, 
-                                                          save_err_img=False, 
-                                                          max_depth_eval=self.thres_max, 
-                                                          min_depth_eval=self.thres_min)
+            if not self.dense_depth:
+                if not self.dense_depth:
+                    depths_gt[torch.logical_not(mask)] = -99
+                    
+                metrics, val_fields= compute_metrics_and_save(depths_gt, pred_depths, 
+                                                            save_err_img=False, 
+                                                            max_depth_eval=self.thres_max, 
+                                                            min_depth_eval=self.thres_min)
         losses = {f"{self.silog_loss.name}": l_depth.item()}
 
         if val_step == idx_to_log and self.should_log:
-            # depths_gt[torch.logical_not(mask)] = -99
             idx = 0
             self.log_val_images(rgb={"Input": images[idx]}, depth={"GT": depths_gt[idx], "PredictedMono": pred_depths[idx]}, 
                                 val_fields=val_fields, prefix="Test", scalar_cmap="magma",
