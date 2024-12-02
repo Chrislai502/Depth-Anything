@@ -10,7 +10,7 @@ python3 train_mix_art.py --pretrained_resource="local::./checkpoints/depth_anyth
 
 # Training inference Depth Anythning Model
 python3 train_mix_infer.py -d mix
-python3 train_mix_infer.py -d mix --
+python3 train_mix_infer.py -d mix --kitti_scale_factor 1.0
 
 # Nov 18th best
 python3 train_mix_art.py --pretrained_resource="local::./depth_anything_finetune/ZoeDepthv1_19-Nov_06-19-842504e15cdd_latest.pt" -d mix

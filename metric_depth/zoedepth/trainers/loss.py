@@ -143,6 +143,32 @@ class GradL1Loss(nn.Module):
             return loss
         return loss, intr_input
 
+class L1Loss(nn.Module):
+    """Gradient loss"""
+    def __init__(self):
+        super(L1Loss, self).__init__()
+        self.name = 'L1_Loss'
+
+    def forward(self, input, target, mask=None, interpolate=True, return_interpolated=False):
+        input = extract_key(input, KEY_OUTPUT)
+        if input.shape[-1] != target.shape[-1] and interpolate:
+            input = nn.functional.interpolate(
+                input, target.shape[-2:], mode='bilinear', align_corners=True)
+            intr_input = input
+        else:
+            intr_input = input
+
+        
+        if mask is not None:
+            target = target[mask]
+            input = input[mask]
+            loss = nn.functional.l1_loss(input, target, reduction='mean')
+        else: # for dense Depth
+            loss = nn.functional.l1_loss(input, target, reduction='mean')
+        if return_interpolated:
+            return loss, intr_input
+        return loss
+
 
 class OrdinalRegressionLoss(object):
 

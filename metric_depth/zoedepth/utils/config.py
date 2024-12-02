@@ -38,7 +38,8 @@ HOME_DIR = os.path.expanduser("./data")
 COMMON_CONFIG = {
     "dense_depth": False,
     # TODO: can turn off this flag if needed
-    "use_segmentation": True,
+    "use_segmentation": False,
+    "merge_batches": 1,
     "save_dir": os.path.expanduser("./depth_anything_finetune"),
     "project": "ZoeDepth",
     "tags": '',
@@ -102,6 +103,7 @@ DATASETS_CONFIG = {
         "min_depth_eval": 1e-3,
         "max_depth_eval": 115.0,
         "art_pred_shift": 8.0, 
+        "kitti_scale_factor": 1.0,
 
         "do_random_rotate": False,
         "degree": 1.0,
@@ -320,8 +322,8 @@ COMMON_TRAINING_CONFIG = {
     "translate_prob": 0.2,
     "max_translation": 100,
 
-    # "validate_every": 0.1,
-    "validate_every": 0.5,
+    "validate_every": 0.1,
+    # "validate_every": 0.5,
     "log_images_every": 0.1,
     "prefetch": False,
 }

@@ -27,7 +27,7 @@ import torch
 import torch.amp as amp
 import torch.nn as nn
 
-from zoedepth.trainers.loss import GradL1Loss, SILogLoss
+from zoedepth.trainers.loss import GradL1Loss, SILogLoss, L1Loss
 from zoedepth.utils.config import DATASETS_CONFIG
 from zoedepth.utils.misc import compute_metrics, compute_metrics_and_save
 from zoedepth.data.preprocess import get_black_border
@@ -49,6 +49,7 @@ class Trainer(BaseTrainer):
         self.device = device
         self.silog_loss = SILogLoss()
         self.grad_loss = GradL1Loss()
+        self.l1_loss = L1Loss()
         self.scaler = amp.GradScaler('cuda', enabled=self.config.use_amp)
         self.dense_depth = config.dense_depth
         self.use_segmentation = config.use_segmentation
@@ -134,34 +135,48 @@ class Trainer(BaseTrainer):
             output = self.model(images)
             pred_depths = output
             pred_depths = pred_depths.unsqueeze(1)
-            if self.dense_depth:
-                l_si, pred = self.silog_loss(
-                    pred_depths, depths_gt, interpolate=True, return_interpolated=True)
-            else:           
-                l_si, pred = self.silog_loss(
-                    pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
             
-            if self.use_segmentation:
-                seg_l_si, pred = self.silog_loss(
-                    pred_depths, depths_gt, mask=batch_segmentation_masks, interpolate=True, return_interpolated=True)
-            
-            loss = self.config.w_si * l_si
-            
-            if self.use_segmentation:
-                loss += self.config.w_si * seg_l_si
-                losses["seg_" + self.silog_loss.name] = seg_l_si
-            
-            losses[self.silog_loss.name] = l_si
-
-            if self.config.w_grad > 0:
+            # SILOG loss if applicable
+            if self.config.w_si > 0:
                 if self.dense_depth:
-                    l_grad = self.grad_loss(pred, depths_gt)
-                else:
-                    l_grad = self.grad_loss(pred, depths_gt, mask=mask)
-                loss = loss + self.config.w_grad * l_grad
-                losses[self.grad_loss.name] = l_grad
-            else:
-                l_grad = torch.Tensor([0])
+                    l_si, pred = self.silog_loss(
+                        pred_depths, depths_gt, interpolate=True, return_interpolated=True)
+                else:           
+                    l_si, pred = self.silog_loss(
+                        pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
+                
+                if self.use_segmentation:
+                    seg_l_si, pred = self.silog_loss(
+                        pred_depths, depths_gt, mask=batch_segmentation_masks, interpolate=True, return_interpolated=True)
+                
+                loss = self.config.w_si * l_si
+            
+                if self.use_segmentation:
+                    loss += self.config.w_si * seg_l_si
+                    losses["seg_" + self.silog_loss.name] = seg_l_si
+                
+                losses[self.silog_loss.name] = l_si
+
+            # MAE loss if applicable
+            if self.config.w_mae > 0:
+                if self.dense_depth:
+                    l_l1, pred = self.l1_loss(
+                        pred_depths, depths_gt, interpolate=True, return_interpolated=True)
+                else:           
+                    l_l1, pred = self.l1_loss(
+                        pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
+                loss = self.config.w_mae * l_l1
+                losses[self.l1_loss.name] = l_l1
+                
+            # if self.config.w_grad > 0:
+            #     if self.dense_depth:
+            #         l_grad = self.grad_loss(pred, depths_gt)
+            #     else:
+            #         l_grad = self.grad_loss(pred, depths_gt, mask=mask)
+            #     loss = loss + self.config.w_grad * l_grad
+            #     losses[self.grad_loss.name] = l_grad
+            # else:
+            #     l_grad = torch.Tensor([0])
 
         self.scaler.scale(loss).backward()
         

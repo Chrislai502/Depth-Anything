@@ -220,19 +220,23 @@ class SampleRatioAwareDataLoader(object):
     If a dataset is exhausted before others, it resets (restarts) so the ratios are maintained.
     '''
 
-    def __init__(self, dataloaders:dict, normalized_ratios:dict):
+    def __init__(self, dataloaders:dict, normalized_ratios:dict, merge_batches=False):
         
         self.dataloaders = dataloaders
 
         # Normalize the ratios
         self.normalized_ratios = normalized_ratios
+        self.merge_batches = merge_batches
+        print("TO Merge Batches: {}".format(self.merge_batches))
 
         # Determine the smallest dataset in terms of length
         self.smallest_dataset_key = min(self.dataloaders, key=lambda k: len(self.dataloaders[k]))
         self.smallest_dataset_len = len(self.dataloaders[self.smallest_dataset_key])
+        min_ratio = self.normalized_ratios[self.smallest_dataset_key]
+        ratios = {key: value / min_ratio for key, value in normalized_ratios.items()} # Make the ratio of smallest dataset 1
 
         # Calculating Dataloader size
-        self.dataloader_size = int(sum([v * self.smallest_dataset_len for v in normalized_ratios.values()])) # dataloader size
+        self.dataloader_size = int(sum([v * self.smallest_dataset_len for v in ratios.values()])) # dataloader size
 
         # Whole dataset will have this many samples
         print("Dataloader Presumed Normalized dataset will have total {} batches".format(self.dataloader_size))
@@ -321,8 +325,10 @@ class SampleRatioAwareDataLoader(object):
             running_count += 1
 
     def __iter__(self):
-        return self.fetch_samples_from_datasets()
-        # return self.ratio_aware_repetitive_roundrobin()
+        if self.merge_batches:
+            return self.fetch_samples_from_datasets()
+        else:
+            return self.ratio_aware_repetitive_roundrobin()
 
     def __len__(self):
         # First samples get repeated, thats why the plus one
@@ -410,7 +416,7 @@ class MixedARTKITTINYU(object):
                 dataloaders[dataset_type] = DepthDataLoader(conf, mode, device=device).data
                 print("Dataloader of {} has {} samples, {} batches".format(dataset_type, len(dataloaders[dataset_type])* dataloaders[dataset_type].batch_size, len(dataloaders[dataset_type])))
             # Ratio Aware Dataloader
-            self.data = SampleRatioAwareDataLoader(dataloaders, self.normalized_ratios)
+            self.data = SampleRatioAwareDataLoader(dataloaders, self.normalized_ratios, self.config.merge_batches)
         else:
             # Testing Dataset
             art_test_conf = change_dataset(edict(config), 'art_test')
@@ -674,8 +680,10 @@ class DataLoadPreprocess(Dataset):
                     depth_gt = cv2.resize(depth_gt, (self.config.art_width, self.config.crop_remain), interpolation=cv2.INTER_NEAREST)
             
             # Performing Shifting on Art Dataset
-            if self.config.dataset[:3] == 'art':
-                depth_gt = depth_gt - self.config.art_pred_shift # Will be added back on for eval
+            # if self.config.dataset[:3] == 'art':
+            if self.config.dataset[:5] == 'kitti':
+                # depth_gt = depth_gt - self.config.art_pred_shift # Will be added back on for eval
+                depth_gt = depth_gt * self.config.kitti_scale_factor * float(401.5879 / focal) # Will be added back on for eval
                 # The below statement will take care of negative values.
             mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
         
