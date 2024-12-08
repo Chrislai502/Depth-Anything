@@ -59,6 +59,7 @@ sys.path.append(root_dir)  # Add the root directory to sys.path
 from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
 from torchvision.transforms import Compose
 from .preprocess import CropParams, get_white_border, get_black_border
+import matplotlib.pyplot as plt
 
 
 def _is_pil_image(img):
@@ -159,7 +160,7 @@ class DepthDataLoader(object):
                                 #    prefetch_factor=2,
                                    sampler=self.train_sampler)
 
-        elif mode == 'online_eval':
+        elif mode == 'eval':
             self.testing_samples = DataLoadPreprocess(config, mode, transform=transform)
             if config.distributed:  # redundant. here only for readability and to be more explicit
                 # Give whole test set to all processes (and report evaluation only on one) regardless
@@ -499,7 +500,7 @@ class DataLoadPreprocess(Dataset):
 
         # Load filenames based on mode (training or evaluation).
         # If mode is 'online_eval', load from `filenames_file_eval`, otherwise from `filenames_file`.
-        if mode == 'online_eval':
+        if mode == 'eval':
             if config.dense_depth:
                 eval_filename = config.filenames_file_eval_dense
             else:
@@ -545,6 +546,7 @@ class DataLoadPreprocess(Dataset):
         sample = {}  # Initialize an empty dictionary to store the sample data
         mask = False # Default if no mask exists
         has_valid_depth = False 
+        has_valid_seg = False
 
         # Check if we are in training mode
         if self.mode == 'train':
@@ -552,16 +554,19 @@ class DataLoadPreprocess(Dataset):
             if self.config.dataset == 'kitti' and self.config.use_right and random.random() > 0.5:
                 # For KITTI dataset with right camera images (50% probability)
                 image_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[3]))
+                seg_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[3])[:-3] + 'npy')
                 depth_path = os.path.join(self.config.gt_path, remove_leading_slash(sample_path.split()[4]))
             elif self.config.dataset[:3] == 'art':
                 image_path = os.path.join(self.config.data_path, self.config.track)
                 depth_path = os.path.join(self.config.gt_path, self.config.track)
                 image_path = os.path.join(image_path, remove_leading_slash(sample_path.split()[0]))
+                seg_path   = os.path.splitext(image_path)[0] + '.npy'
                 depth_path = os.path.join(depth_path, remove_leading_slash(sample_path.split()[1]))
             else:
                 # Standard case (left images)
                 image_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[0]))
                 depth_path = os.path.join(self.config.gt_path, remove_leading_slash(sample_path.split()[1]))
+                seg_path = os.path.splitext(image_path)[0] + '.npy'
 
             # Load image and depth data
             image = self.reader.open(image_path)
@@ -600,27 +605,47 @@ class DataLoadPreprocess(Dataset):
             else:
                 depth_gt /= 256.0
 
-            # Apply random crop and random translation if enabled in config
-            if self.config.aug and self.config.random_crop:
-                image, depth_gt = self.random_crop(image, depth_gt, self.config.input_height, self.config.input_width)
-            if self.config.aug and self.config.random_translate:
-                image, depth_gt = self.random_translate(image, depth_gt, self.config.max_translation)
+            # # Apply random crop and random translation if enabled in config
+            # if self.config.aug and self.config.random_crop:
+            #     image, depth_gt = self.random_crop(image, depth_gt, self.config.input_height, self.config.input_width)
+            # if self.config.aug and self.config.random_translate:
+            #     image, depth_gt = self.random_translate(image, depth_gt, self.config.max_translation)
 
-            # Additional preprocessing for training
-            image, depth_gt = self.train_preprocess(image, depth_gt)
+            # Load Seg data
+            if self.config.use_segmentation:
+                try:
+                    seg_gt = np.load(seg_path)
+                    # getting the index of the requested segmentation class 
+                    segmentation_class_index = 13
+                    # creating the segmentation mask for the specific label
+                    seg_gt = (seg_gt == segmentation_class_index)
+
+                    has_valid_seg = True
+                except IOError:
+                    seg_gt = False
+                    print("Seg file not found for image: ", seg_path)
+                    has_valid_seg = False
+                
+                # Additional preprocessing for training
+                if has_valid_seg:
+                    image, depth_gt, seg_gt = self.train_preprocess(image, depth_gt, seg_gt)
+            else:
+                # Additional preprocessing for training
+                image, depth_gt = self.train_preprocess(image, depth_gt)
 
         else:
             # Loading for online evaluation or inference
             if self.config.dataset[:3] == 'art':
-                data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
+                data_path = self.config.data_path_eval if self.mode == 'eval' else self.config.data_path
                 data_path = os.path.join(data_path, self.config.track)
             else:
-                data_path = self.config.data_path_eval if self.mode == 'online_eval' else self.config.data_path
+                data_path = self.config.data_path_eval if self.mode == 'eval' else self.config.data_path
             image_path = os.path.join(data_path, remove_leading_slash(sample_path.split()[0]))
+            seg_path   = os.path.join(data_path, remove_leading_slash(sample_path.split()[0])[:-3] + 'npy')
             image = np.asarray(self.reader.open(image_path), dtype=np.float32) / 255.0
 
             # For online evaluation, load depth data if available
-            if self.mode == 'online_eval':
+            if self.mode == 'eval':
                 if self.config.dataset[:3] == 'art':
                     gt_path = os.path.join(self.config.gt_path_eval, self.config.track)
                 else:
@@ -639,6 +664,26 @@ class DataLoadPreprocess(Dataset):
                 depth_gt = np.asarray(depth_gt, dtype=np.float32)
                 depth_gt = np.expand_dims(depth_gt, axis=2)
                 depth_gt /= (1000.0 if self.config.dataset == 'nyu' else 256.0)
+
+            # Load Seg data
+            if self.config.use_segmentation:
+                try:
+                    seg_gt = np.load(seg_path)
+                    # self.save_segmentation(np.squeeze(seg_gt), output_path = "/home/art/Depth-Anything/semseg/data/to_ashwin/test.png") #self.save_segmentation(seg_gt, "/home/art/Depth-Anything/semseg/data/to_ashwin/test.png")
+
+                    # getting the index of the requested segmentation class 
+                    segmentation_class_index = 13
+                    # creating the segmentation mask for the specific label
+                    seg_gt = (seg_gt == segmentation_class_index)
+
+                    # print(seg_gt.sum())
+
+                    has_valid_seg = True
+                except IOError:
+                    seg_gt = False
+                    print("Seg file not found for image: ", seg_path)
+                    has_valid_seg = False
+            
 
         # Apply Art dataset-specific cropping.
         if has_valid_depth:
@@ -672,27 +717,32 @@ class DataLoadPreprocess(Dataset):
                 left_margin = (width - crop_width) // 2
                 right_margin = width - left_margin
 
-                # Crop both image and depth ground truth
+                # Crop both seg masks and depth ground truth
+                if has_valid_seg:
+                    seg_gt   = self.pad_or_crop_image(seg_gt, crop_height, crop_width)
+
                 depth_gt = depth_gt[bottom_margin:top_margin, left_margin:right_margin, ...] 
 
                 if height < self.config.crop_remain or width < self.config.art_width:
                     # For image and gt depth, resize. Image using bilinear, depth using nearest neighbor
                     depth_gt = cv2.resize(depth_gt, (self.config.art_width, self.config.crop_remain), interpolation=cv2.INTER_NEAREST)
-            
+                    if has_valid_seg:
+                        seg_gt   = cv2.resize(seg_gt  , (self.config.art_width, self.config.crop_remain), interpolation=cv2.INTER_NEAREST)
+
             # Performing Shifting on Art Dataset
             # if self.config.dataset[:3] == 'art':
-            if self.config.dataset[:5] == 'kitti':
+            if self.config.dataset[:5] == 'kitti' and self.config.get("kitti_scale_factor", False):
                 # depth_gt = depth_gt - self.config.art_pred_shift # Will be added back on for eval
                 depth_gt = depth_gt * self.config.kitti_scale_factor * float(401.5879 / focal) # Will be added back on for eval
                 # The below statement will take care of negative values.
             mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
         
         if self.mode == 'train':
-            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'mask': mask, **sample} # NOT SURE HOW TRAINER HANDLES INVALID SAMPLES
+            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'mask': mask, 'seg_mask':np.expand_dims(seg_gt, 0), **sample} # NOT SURE HOW TRAINER HANDLES INVALID SAMPLES
         else:
-            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth, 'mask': mask}
+            sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth, 'mask': mask, 'seg_mask':np.expand_dims(seg_gt, 0)}
             if not sample['has_valid_depth'] or isinstance(sample["mask"], int):
-                return {'image': False, 'depth': False, 'focal': False, 'has_valid_depth': False, 'mask': False}
+                return {'image': False, 'depth': False, 'focal': False, 'has_validd_epth': False, 'mask': False, 'seg_mask':False}
                 
         sample = self.postprocess(sample)
         sample['dataset'] = self.config.dataset
@@ -700,6 +750,48 @@ class DataLoadPreprocess(Dataset):
         if self.transform:
             sample = self.transform(sample)
         return sample
+
+# Assume colors are defined using a colormap for class values 0-19
+    def save_segmentation(self, seg_gt, output_path = "/home/art/Depth-Anything/semseg/data/to_ashwin/test.png"):
+        # Define a colormap for the classes (0-19)
+        cmap = plt.colormaps['tab20']  # Use matplotlib's tab20 colormap
+        colors = [cmap(i)[:3] for i in range(20)]  # Extract RGB colors (ignoring alpha)
+        colors = (np.array(colors) * 255).astype(np.uint8)  # Convert to 0-255 range
+
+        # Create an RGB image from the segmentation mask
+        seg_color = np.zeros((seg_gt.shape[0], seg_gt.shape[1], 3), dtype=np.uint8)
+        for class_value in range(20):  # For classes 0-19
+            seg_color[seg_gt == class_value] = colors[class_value]
+
+        # Save the segmentation image to the output path
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)  # Ensure the directory exists
+        cv2.imwrite(output_path, cv2.cvtColor(seg_color, cv2.COLOR_RGB2BGR))  # Save as BGR for OpenCV compatibility
+        print(f"Segmentation saved to {output_path}")
+        raise NotImplementedError
+    def pad_or_crop_image(self, image, target_height, target_width):
+        """Pad or crop an image to the desired size (target_height, target_width)."""
+        image = np.squeeze(image)
+        if image.dtype == bool:
+            image = image.astype(np.uint8)
+        h, w = image.shape
+
+        # If the image is smaller, pad with zeros
+        if h < target_height or w < target_width:
+            top_pad = max(0, (target_height - h) // 2)
+            bottom_pad = max(0, target_height - h - top_pad)
+            left_pad = max(0, (target_width - w) // 2)
+            right_pad = max(0, target_width - w - left_pad)
+            image = cv2.copyMakeBorder(image, top_pad, bottom_pad, left_pad, right_pad, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+        
+        # If the image is larger, crop to the target size
+        if h > target_height or w > target_width:
+            top_crop = max(0, (h - target_height) // 2)
+            bottom_crop = top_crop + target_height
+            left_crop = max(0, (w - target_width) // 2)
+            right_crop = left_crop + target_width
+            image = image[top_crop:bottom_crop, left_crop:right_crop]
+            
+        return image
 
     def rotate_image(self, image, angle, flag=Image.BILINEAR):
         result = image.rotate(angle, resample=flag)
@@ -734,19 +826,22 @@ class DataLoadPreprocess(Dataset):
         # print("after", img.shape, depth.shape)
         return img, depth
 
-    def train_preprocess(self, image, depth_gt):
+    def train_preprocess(self, image, depth_gt, seg_gt=None):
         if self.config.aug:
             # Random flipping
             do_flip = random.random()
             if do_flip > 0.5:
                 image = (image[:, ::-1, :]).copy()
                 depth_gt = (depth_gt[:, ::-1, :]).copy()
+                if seg_gt is not None:
+                    seg_gt = (seg_gt[:, :, ::-1]).copy()
 
             # # Random gamma, brightness, color augmentation
             # do_augment = random.random()
             # if do_augment > 0.5:
             #     image = self.augment_image(image)
-
+        if seg_gt is not None:
+            return image, depth_gt, seg_gt
         return image, depth_gt
 
     def augment_image(self, image):

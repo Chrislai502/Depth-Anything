@@ -27,6 +27,7 @@ import uuid
 import warnings
 from datetime import datetime as dt
 from typing import Dict
+import io
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,9 +37,10 @@ import torch.nn as nn
 import torch.optim as optim
 import wandb
 from tqdm import tqdm
+from PIL import Image
 
 from zoedepth.utils.config import flatten
-from zoedepth.utils.misc import RunningAverageDict, colorize, colors
+from zoedepth.utils.misc import RunningAverageDict, RunningCountDict, colorize, colors, create_histogram_image
 
 
 def is_rank_zero(args):
@@ -50,8 +52,7 @@ class BaseTrainer:
         """ Base Trainer class for training a model."""
         
         self.config = config
-        # self.metric_criterion = "abs_rel"
-        self.metric_criterion = "a1"
+        self.metric_criterion = "abs_rel/seg_cls/0" # Closest bin to the car
         if device is None:
             device = torch.device(
                 'cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -156,10 +157,8 @@ class BaseTrainer:
         self.should_write = ((not self.config.distributed)
                              or self.config.rank == 0)
         self.should_log = self.should_write  # and logging
-        # self.should_log = False
         if self.should_log:
-            tags = self.config.tags.split(
-                ',') if self.config.tags != '' else None
+            tags = self.config.tags.split(',') if self.config.tags != '' else None
             wandb.init(project=self.config.project, name=self.config.experiment_id, config=flatten(self.config), dir=self.config.root,
                        tags=tags, notes=self.config.notes, settings=wandb.Settings(start_method="fork"))
 
@@ -190,7 +189,7 @@ class BaseTrainer:
                 self.log_learning_rates()  # <-- Log LRs here
             
             # First validation datapoint
-            _, _ = self.validate()
+            _, _ = self.validate(self.step)
             
             pbar = tqdm(enumerate(self.train_loader), desc=f"Epoch: {epoch + 1}/{self.config.epochs}. Loop: Train",
                         total=self.iters_per_epoch) if is_rank_zero(self.config) else enumerate(self.train_loader)
@@ -231,7 +230,7 @@ class BaseTrainer:
                         metrics, test_losses = self.validate()
                         # print("Validated: {}".format(metrics))
                         if self.should_log:
-                            if (metrics[self.metric_criterion] > best_loss) and self.should_write:
+                            if metrics[self.metric_criterion] and (metrics[self.metric_criterion] <= best_loss) and self.should_write:
                                 self.save_checkpoint(
                                     f"{self.config.experiment_id}_best.pt")
                                 best_loss = metrics[self.metric_criterion]
@@ -253,36 +252,73 @@ class BaseTrainer:
 
             ################################# Validation loop ##################################################
             metrics, test_losses = self.validate()
-            # print("Validated: {}".format(metrics))
             if self.should_log:
-                if (metrics[self.metric_criterion] > best_loss) and self.should_write:
+                if metrics[self.metric_criterion] and (metrics[self.metric_criterion] <= best_loss) and self.should_write:
                     self.save_checkpoint(
                         f"{self.config.experiment_id}_best.pt")
                     best_loss = metrics[self.metric_criterion]
 
         self.model.train()
 
-    def validate(self):
+    def validate(self, train_step=None):
         with torch.no_grad():
             losses_avg = RunningAverageDict()
             metrics_avg = RunningAverageDict()
-            idx_to_log = np.random.randint(0, len(self.test_loader))
+            bin_freq = RunningCountDict()
+            
+            idx_to_log = np.random.randint(52, 75)
             for i, batch in tqdm(enumerate(self.test_loader), desc=f"Epoch: {self.epoch + 1}/{self.config.epochs}. Loop: Validation", total=len(self.test_loader), disable=not is_rank_zero(self.config)):
-                metrics, losses = self.validate_on_batch(batch, val_step=i, idx_to_log=idx_to_log)
+                metrics, losses, freq = self.validate_on_batch(batch, val_step=i, idx_to_log=idx_to_log, train_step=train_step)
 
                 if losses:
                     losses_avg.update(losses)
                 if metrics:
                     metrics_avg.update(metrics)
+                if freq:
+                    bin_freq.update(freq)
 
             metrics, test_losses = metrics_avg.get_value(), losses_avg.get_value()
 
             if self.should_log:
+                # Get the absrel plot and Frequency plot
+                absrel_hist = {}
+                for k, v in metrics.items():
+                    if k.startswith("abs_rel"):
+                        absrel_hist[int(k.split('/')[-1])] = v
+                absrel_image = create_histogram_image(
+                    hist_data=absrel_hist,
+                    title="AbsRel over Distance Histogram",
+                    xlabel="meters from ego (m)",
+                    ylabel="AbsRel (%)",
+                )
+                metric_plots = {"AbsRel": absrel_image}
+
+                if train_step is not None and train_step == 0:
+                    freq_hist = bin_freq.get_value()
+                    freq_image = create_histogram_image(
+                        hist_data=freq_hist,
+                        title="Validation data Frequency",
+                        xlabel="meters from ego (m)",
+                        ylabel="Frequency",
+                    )
+                    metric_plots["Data Frequency"] = freq_image
+                    
+                # Sending up Metric Plot Images
+                wimages = {"Metric_Plots": [wandb.Image(v, caption=k) for k, v in metric_plots.items()]}
+                wandb.log(wimages, step=self.step)
+                
+                # Sending up Test Losses
                 wandb.log({f"Test/{name}": tloss for name,
                           tloss in test_losses.items()}, step=self.step)
-                wandb.log({f"Metrics/{k}": v for k,
-                          v in metrics.items()}, step=self.step)
+                
+                # Sending up All Metric Values
+                for k, v in metrics.items():
+                    wandb.log({f"Metrics_{k}": v}, step=self.step)
+                
+                
 
+
+                
             return metrics_avg.get_value(), losses_avg.get_value()
 
     def save_checkpoint(self, filename):
@@ -325,17 +361,55 @@ class BaseTrainer:
             except AttributeError:
                 min_depth = None
                 max_depth = None
-
         depth = {k: colorize(v, vmin=min_depth, vmax=max_depth, cmap=scalar_cmap)
                  for k, v in depth.items()}
         scalar_field = {k: colorize(
-            v, vmin=None, vmax=None, cmap=scalar_cmap) for k, v in scalar_field.items()}
+            v.float()*255.0, vmin=0, vmax=256, cmap="gray") for k, v in scalar_field.items()}
         images = {**rgb, **depth, **scalar_field}
         wimages = {
             prefix+"Predictions": [wandb.Image(v, caption=k) for k, v in images.items()]}
         wandb.log(wimages, step=self.step)
+    
+    # def create_histogram_image(self, hist_data: dict, xlabel: str = 'X', ylabel: str = 'Y', title: str = '', style: str = 'ggplot', add_labels: bool = True) -> wandb.Image:
+    #     """
+    #     Creates a bar plot from histogram data and returns it as a wandb.Image.
+    #     Parameters:
+    #     - hist_data (dict): A dictionary where keys are bin centers (or edges) and values are counts.
+    #     - xlabel (str): Label for the x-axis.
+    #     - ylabel (str): Label for the y-axis.
+    #     - title (str): Title for the plot.
+    #     - style (str): Matplotlib style to use for the plot.
+    #     - add_labels (bool): Whether to annotate the bars with their values.
+
+    #     Returns:
+    #     - wandb.Image: The generated plot as a wandb.Image object.
+    #     """
+    #     plt.style.use(style)
         
-    def log_val_images(self, rgb: Dict[str, list] = {}, depth: Dict[str, list] = {}, val_fields:Dict[str, list]={}, scalar_field: Dict[str, list] = {}, prefix="", scalar_cmap="magma_r", min_depth=None, max_depth=None):
+    #     x = [k for k in hist_data.keys()]
+    #     y = list(hist_data.values())
+    #     plt.bar(x, y, width=8, align='edge')
+        
+    #     if add_labels:
+    #         for i in range(len(x)):
+    #             plt.text(x[i] + 4, y[i] / 2, f'{y[i]:.3f}', ha='center', va='center', fontsize=8, color='black')
+        
+    #     plt.xlabel(xlabel)
+    #     plt.ylabel(ylabel)
+    #     if title:
+    #         plt.title(title)
+            
+    #     # Save the plot into an in-memory buffer
+    #     buf= io.BytesIO()
+    #     plt.savefig(buf, format="jpg", bbox_inches="tight")
+    #     buf.seek(0) # Reset the buffer pointer to the beginning
+    #     plt.close() # Clean up the plt state
+    #     pil_image = Image.open(buf)
+    #     return pil_image
+
+    
+    def log_val_images(self, rgb: Dict[str, list] = {}, depth: Dict[str, list] = {}, val_fields:Dict[str, list]={}, metric_plots:Dict[str, dict]= None, scalar_field: Dict[str, list] = {}, prefix="", scalar_cmap="magma_r", min_depth=None, max_depth=None):
+        
         if not self.should_log:
             return
 
@@ -346,15 +420,23 @@ class BaseTrainer:
             except AttributeError:
                 min_depth = None
                 max_depth = None
-
+                
+        # # Creating Plots
+        # if metric_plots not None:
+        #     metric_plots = {k: self.create_histogram_image(hist_data=v, ylabel=k[:-4], xlabel="meters (m)", title=k) for k, v in metric_plots.items()}
+        
         depth = {k: colorize(v, vmin=min_depth, vmax=max_depth, cmap=scalar_cmap)
                  for k, v in depth.items()}
         scalar_field = {k: colorize(
-            v, vmin=None, vmax=None, cmap=scalar_cmap) for k, v in scalar_field.items()}
+            v.float()*255.0, vmin=0, vmax=256, cmap="gray") for k, v in scalar_field.items()}
         images = {**rgb, **depth, **scalar_field, **val_fields}
         wimages = {
             prefix+"Predictions": [wandb.Image(v, caption=k) for k, v in images.items()]}
         wandb.log(wimages, step=self.step)
+        # wimages = {
+        #     prefix+"Metric_Plots": [wandb.Image(v, caption=k) for k, v in metric_plots.items()]}
+        # wandb.log(wimages, step=self.step)
+
 
     def log_line_plot(self, data):
         if not self.should_log:

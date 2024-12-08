@@ -43,7 +43,9 @@ import torch.utils.data.distributed
 from PIL import Image
 from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
-
+from collections import defaultdict
+import io
+from PIL import Image
 
 class RunningAverage:
     def __init__(self):
@@ -87,15 +89,40 @@ class RunningAverageDict:
                 self._dict[key] = RunningAverage()
 
         for key, value in new_dict.items():
-            self._dict[key].append(value)
+            if not math.isnan(value):
+                self._dict[key].append(value)
 
     def get_value(self):
         if self._dict is None:
             return None
         return {key: value.get_value() for key, value in self._dict.items()}
 
-import numpy as np
-from collections import defaultdict
+    def get_n_count(self):
+        if self._dict is None:
+            return None
+        return {key: value.count for key, value in self._dict.items()}
+
+class RunningCountDict:
+    def __init__(self):
+        self._dict = None
+
+    def update(self, new_dict):
+        if new_dict is None:
+            return
+
+        if self._dict is None:
+            self._dict = dict()
+            for key, value in new_dict.items():
+                self._dict[key] = 0
+
+        for key, value in new_dict.items():
+            self._dict[key] += int(value)
+    
+    def get_value(self):
+        if self._dict is None:
+            return None
+        return self._dict
+
 class RunningStats:
     """Tracks running statistics for a single variable."""
     def __init__(self):
@@ -307,6 +334,20 @@ def compute_errors(gt, pred):
             'rmse_log': Root mean squared error on the log scale
             'silog': Scale invariant log error
     """
+    # If gt and pred is empty, return empty dict with all the keys and math.nan
+    if gt.size == 0 or pred.size == 0:
+        return {
+            "a1": np.nan,
+            "a2": np.nan,
+            "a3": np.nan,
+            "abs_rel": np.nan,
+            "rmse": np.nan,
+            "log_10": np.nan,
+            "sq_rel": np.nan,
+            "rmse_log": np.nan,
+            "silog": np.nan,
+        }
+    
     thresh = np.maximum((gt / pred), (pred / gt))
     a1 = (thresh < 1.25).mean()
     a2 = (thresh < 1.25 ** 2).mean()
@@ -369,7 +410,6 @@ def compute_errors_2d(gt, pred, valid_mask=None, save_err_img=True, max_depth_ev
         # Flatten values for error calculations
         gt_1d = gt.flatten()
         pred_1d = pred.flatten()
-        print(f"gt_1d shape: {gt_1d.shape}")
 
 
     # Calculate accuracy metrics
@@ -428,10 +468,12 @@ def compute_metrics_and_save(gt, pred, interpolate=True, garg_crop=False, eigen_
         config = kwargs['config']
         garg_crop = config.garg_crop
         eigen_crop = config.eigen_crop
-        min_depth_eval = config.min_depth_eval
-        max_depth_eval = config.max_depth_eval
-        # max_depth_eval = 300
-        # print("MAX DEPTH EVAL: ", max_depth_eval)
+        min_depth_eval = min_depth_eval
+        max_depth_eval = max_depth_eval
+    
+    # # Invert gt and pred
+    # gt   = max_depth_eval - gt
+    # pred = max_depth_eval - pred
 
     # If ground truth and prediction sizes do not match, and interpolation is requested, interpolate prediction
     if gt.shape[-2:] != pred.shape[-2:] and interpolate:
@@ -451,7 +493,6 @@ def compute_metrics_and_save(gt, pred, interpolate=True, garg_crop=False, eigen_
         gt_depth > min_depth_eval, gt_depth < max_depth_eval)
 
     # Apply cropping if requested by either garg_crop or eigen_crop
-    # print("GARG CROP: ", garg_crop, "EIGEN CROP: ", eigen_crop)
     if garg_crop or eigen_crop:
         gt_height, gt_width = gt_depth.shape
         eval_mask = np.zeros(valid_mask.shape)
@@ -473,6 +514,90 @@ def compute_metrics_and_save(gt, pred, interpolate=True, garg_crop=False, eigen_
     
     return compute_errors_2d(gt_depth, pred, valid_mask, save_err_img=True, max_depth_eval=max_depth_eval, min_depth_eval=min_depth_eval)
 
+def compute_metrics_and_bin(gt, pred, seg_mask=None,interpolate=True, garg_crop=False, eigen_crop=True, dataset='nyu', min_depth_eval=0.1, max_depth_eval=10, **kwargs):
+    """Compute metrics of predicted depth maps. Applies cropping and masking as necessary or specified via arguments. Refer to compute_errors for more details on metrics.
+    """
+
+    if 'config' in kwargs:
+        config = kwargs['config']
+        garg_crop = config.garg_crop
+        eigen_crop = config.eigen_crop
+        min_depth_eval = min_depth_eval
+        max_depth_eval = max_depth_eval
+    
+    # Invert gt and pred
+    gt   = max_depth_eval - gt
+    pred = max_depth_eval - pred
+    
+    final_results = {}
+    freq_hist = {}
+
+    # If ground truth and prediction sizes do not match, and interpolation is requested, interpolate prediction
+    if gt.shape[-2:] != pred.shape[-2:] and interpolate:
+        pred = nn.functional.interpolate(
+            pred, gt.shape[-2:], mode='bilinear', align_corners=True)
+
+    # Prepare prediction data for evaluation: remove channel dimension, convert to numpy array, and enforce depth limits
+    pred = pred.squeeze().cpu().numpy()
+    pred[pred < min_depth_eval] = min_depth_eval
+    pred[pred > max_depth_eval] = max_depth_eval
+    pred[np.isinf(pred)] = 500
+    pred[np.isnan(pred)] = min_depth_eval
+
+    # Create a mask to ignore regions in the ground truth outside the min/max depth range
+    gt_depth = gt.squeeze().cpu().numpy()
+    valid_mask = np.logical_and(
+        gt_depth > min_depth_eval, gt_depth < max_depth_eval)
+
+    # Apply cropping if requested by either garg_crop or eigen_crop
+    if garg_crop or eigen_crop:
+        gt_height, gt_width = gt_depth.shape
+        eval_mask = np.zeros(valid_mask.shape)
+
+        if garg_crop:
+            eval_mask[int(0.40810811 * gt_height):int(0.99189189 * gt_height),
+                      int(0.03594771 * gt_width):int(0.96405229 * gt_width)] = 1
+
+        elif eigen_crop:
+            # print("-"*10, " EIGEN CROP ", "-"*10)
+            if dataset == 'kitti':
+                eval_mask[int(0.3324324 * gt_height):int(0.91351351 * gt_height),
+                          int(0.0359477 * gt_width):int(0.96405229 * gt_width)] = 1
+            else:
+                # assert gt_depth.shape == (480, 640), "Error: Eigen crop is currently only valid for (480, 640) images"
+                eval_mask[45:471, 41:601] = 1
+        else:
+            eval_mask = np.ones(valid_mask.shape)
+
+    # Create a mask to ignore regions in the ground truth outside the min/max depth range
+    if seg_mask is not None:
+        seg_mask = np.logical_and(seg_mask.squeeze().squeeze().cpu().numpy(), valid_mask)
+        if seg_mask.sum() <= 0:
+            return final_results, freq_hist
+        gt_depth = gt_depth[seg_mask]
+        pred = pred[seg_mask]
+    else:
+        gt_depth = gt_depth[valid_mask]
+        pred = pred[valid_mask]
+        
+    # Calculating binwise metrics
+    gt_bin = (gt_depth//10).astype(int)
+    maxbin = int(max_depth_eval // 10)
+
+    # Iterate over all possible bins
+    for i in range(maxbin):
+        mask = (gt_bin == i) # mask for the current bin
+        masked_gt = gt_depth[mask]
+        masked_pred = pred[mask]
+        freq_hist[i*10] = int(len(masked_gt))
+        metrics = compute_errors(masked_gt, masked_pred)
+        for key, val in metrics.items():
+            keyname = key + '/'
+            if seg_mask is not None:
+                keyname = keyname + 'seg_cls/'
+            keyname += str(i*10)
+            final_results[keyname] = val
+    return final_results, freq_hist
 
 def compute_metrics(gt, pred, interpolate=True, garg_crop=False, eigen_crop=True, dataset='nyu', min_depth_eval=0.1, max_depth_eval=10, **kwargs):
     """Compute metrics of predicted depth maps. Applies cropping and masking as necessary or specified via arguments. Refer to compute_errors for more details on metrics.

@@ -29,7 +29,7 @@ import torch.nn as nn
 
 from zoedepth.trainers.loss import GradL1Loss, SILogLoss, L1Loss
 from zoedepth.utils.config import DATASETS_CONFIG
-from zoedepth.utils.misc import compute_metrics, compute_metrics_and_save
+from zoedepth.utils.misc import compute_metrics, compute_metrics_and_save, compute_metrics_and_bin
 from zoedepth.data.preprocess import get_black_border
 
 from .base_trainer import BaseTrainer
@@ -67,8 +67,7 @@ class Trainer(BaseTrainer):
         # TODO: Segmentation model Initialization
         if config.use_segmentation:
             # initialize segmentation model using the config and checkpoint file 
-            self._device = torch.device('cuda:0' if self.device == 0 else 'cpu')
-            self.segmentation_model = init_model(config.segmentation_config, config.segmentation_checkpoint, device=self._device)
+            # Update: Check commands.txt to first cache the segments
             self.segmentation_class = config.segmentation_class
         self.thres_min, self.thres_max = config.teacher_anchors
         
@@ -96,38 +95,17 @@ class Trainer(BaseTrainer):
                 # depths_gt = torch.clamp(depths_gt, min=self.thres_min, max = self.thres_max)
         else: # Else, prepare mask and depth map
             # mask shape: [16, 1, height, width]
-            mask = batch["mask"].to(self.device).to(torch.bool)
+            mask = batch["mask"].to(torch.bool)
+            if self.use_segmentation:
+                seg_mask = torch.logical_and(mask, batch['seg_mask'])
+                valid_seg = seg_mask.sum() > 0
+                seg_mask = seg_mask.to(self.device) if valid_seg else None
+            mask = mask.to(self.device)
             depths_gt = batch['depth'].to(self.device)
             depths_gt = self.clip_and_invert(depths_gt) 
         b, c, h, w = images.size()
 
         losses = {}
-        
-        batch_segmentation_results = []
-        
-        # stores masks of shape (batch_size, height, width)
-        batch_segmentation_masks = torch.zeros((b, h, w), dtype=torch.bool, device=images.device)
-        if self.use_segmentation:
-            images_np = images.cpu().numpy()
-            # batch implementation is not supposed for inference_model function
-            batch_size = images.size(0)
-            for i in range(batch_size):
-                # converting img to numpy
-                _img = images_np[i]
-                # expected input shape is (h, w, c)
-                _img = _img.transpose(1, 2, 0)
-                single_img_segmentation_result = inference_model(self.segmentation_model, _img)
-                batch_segmentation_results.append(single_img_segmentation_result) 
-                
-                # getting the index of the requested segmentation class 
-                segmentation_class_index = self.segmentation_model.dataset_meta['classes'].index(self.segmentation_class)
-                
-                # creating the segmentation mask for the specific label
-                segmentation_mask = (single_img_segmentation_result.pred_sem_seg.data.cpu().numpy() == segmentation_class_index)
-                
-                batch_segmentation_masks[i] = torch.tensor(segmentation_mask.reshape((h, w)), dtype=torch.bool, device=images.device)
-
-        batch_segmentation_masks = batch_segmentation_masks.unsqueeze(1)
 
         with amp.autocast('cuda', enabled=self.config.use_amp):
             
@@ -145,14 +123,14 @@ class Trainer(BaseTrainer):
                     l_si, pred = self.silog_loss(
                         pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
                 
-                if self.use_segmentation:
-                    seg_l_si, pred = self.silog_loss(
-                        pred_depths, depths_gt, mask=batch_segmentation_masks, interpolate=True, return_interpolated=True)
+                if self.use_segmentation and valid_seg:
+                    seg_l_si, _ = self.silog_loss(
+                        pred_depths, depths_gt, mask=seg_mask, interpolate=True, return_interpolated=True)
                 
                 loss = self.config.w_si * l_si
             
-                if self.use_segmentation:
-                    loss += self.config.w_si * seg_l_si
+                if self.use_segmentation and valid_seg:
+                    loss += self.config.w_seg * seg_l_si
                     losses["seg_" + self.silog_loss.name] = seg_l_si
                 
                 losses[self.silog_loss.name] = l_si
@@ -167,6 +145,12 @@ class Trainer(BaseTrainer):
                         pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
                 loss = self.config.w_mae * l_l1
                 losses[self.l1_loss.name] = l_l1
+                    
+                if self.use_segmentation and valid_seg:
+                    seg_l_l1, _ = self.l1_loss(pred_depths, depths_gt, mask=seg_mask, interpolate=True, return_interpolated=True)
+                    loss += self.config.w_seg * seg_l_l1
+                    losses["seg_" + self.l1_loss.name]   = seg_l_l1
+                
                 
             # if self.config.w_grad > 0:
             #     if self.dense_depth:
@@ -192,9 +176,16 @@ class Trainer(BaseTrainer):
             if not self.dense_depth:
                 depths_gt[torch.logical_not(mask)] = -99
             idx = np.random.randint(0, b)
-            self.log_images(rgb={"Input": images[idx, ...]}, depth={"GT": depths_gt[idx], "PredictedMono": pred[idx]}, prefix="Train",
+            if self.config.use_segmentation:
+                seg_gt = torch.where(seg_mask[idx] == 1, depths_gt[idx], torch.full_like(depths_gt[idx], -99))
+                self.log_images(rgb={"Input": images[idx, ...]}, depth={"PredictedMono": pred[idx], "SegMask_GT": seg_gt,"GT": depths_gt[idx]}, prefix="Train",
+                                scalar_field={"SegMask": seg_mask[idx]},
                             min_depth=DATASETS_CONFIG[dataset]['min_depth'], max_depth=DATASETS_CONFIG[dataset]['max_depth'],
                             scalar_cmap="magma")
+            else:
+                self.log_images(rgb={"Input": images[idx, ...]}, depth={"PredictedMono": pred[idx], "GT": depths_gt[idx]}, prefix="Train",
+                                min_depth=DATASETS_CONFIG[dataset]['min_depth'], max_depth=DATASETS_CONFIG[dataset]['max_depth'],
+                                scalar_cmap="magma")
 
             if self.config.get("log_rel", False):
                 self.log_images(
@@ -206,9 +197,10 @@ class Trainer(BaseTrainer):
 
         return losses
     
-    def validate_on_batch(self, batch, val_step, idx_to_log):
+    def validate_on_batch(self, batch, val_step, idx_to_log, train_step=None):
         images = batch['image'].to(self.device)
         depths_gt = self.clip_and_invert(batch['depth'])
+        seg_mask = batch['seg_mask'].to(self.device)
         depths_gt = depths_gt.to(self.device)
         depths_gt = depths_gt.squeeze().unsqueeze(0).unsqueeze(0)
         dataset = batch['dataset'][0]
@@ -237,22 +229,29 @@ class Trainer(BaseTrainer):
             metrics = compute_metrics(depths_gt, pred_depths, **self.config)
         else:
             if not self.dense_depth:
-                if not self.dense_depth:
-                    depths_gt[torch.logical_not(mask)] = -99
-                    
-                metrics, val_fields= compute_metrics_and_save(depths_gt, pred_depths, 
-                                                            save_err_img=False, 
-                                                            max_depth_eval=self.thres_max, 
-                                                            min_depth_eval=self.thres_min)
+                depths_gt[torch.logical_not(mask)] = -99
+                # metrics, val_fields= compute_metrics_and_save(depths_gt, pred_depths, 
+                #                                             save_err_img=False, 
+                #                                             max_depth_eval=self.thres_max, 
+                #                                             min_depth_eval=self.thres_min)
+                metrics, freq_hist = compute_metrics_and_bin(depths_gt, pred_depths, seg_mask=seg_mask,
+                                                    save_err_img=False, 
+                                                    max_depth_eval=self.thres_max, 
+                                                    min_depth_eval=self.thres_min)
         losses = {f"{self.silog_loss.name}": l_depth.item()}
 
         if val_step == idx_to_log and self.should_log:
             idx = 0
-            self.log_val_images(rgb={"Input": images[idx]}, depth={"GT": depths_gt[idx], "PredictedMono": pred_depths[idx]}, 
-                                val_fields=val_fields, prefix="Test", scalar_cmap="magma",
+            # self.log_val_images(rgb={"Input": images[idx]}, depth={"GT": depths_gt[idx], "PredictedMono": pred_depths[idx]}, 
+            #                     val_fields=val_fields, prefix="Test", scalar_cmap="magma",
+            #                 min_depth=self.thres_min, max_depth=self.thres_max)
+            seg_gt = torch.where(seg_mask[idx] == 1, depths_gt[idx], torch.full_like(depths_gt[idx], -99))
+            self.log_val_images(rgb={"Input": images[idx]}, depth={"PredictedMono": pred_depths[idx], "SegMask_GT": seg_gt, "GT": depths_gt[idx]}, 
+                                scalar_field={"SegMask": seg_mask[idx]},
+                                prefix="Test", scalar_cmap="magma",
                             min_depth=self.thres_min, max_depth=self.thres_max)
 
-        return metrics, losses
+        return metrics, losses, freq_hist
 
     
     def clip_and_normalize(self, tensor):

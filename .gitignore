@@ -9,6 +9,7 @@
 # Dataset directories checkpoints
 checkpoints
 metric_depth/data
+archive_data
 *.pt
 *.pth
 output

@@ -38,11 +38,11 @@ HOME_DIR = os.path.expanduser("./data")
 COMMON_CONFIG = {
     "dense_depth": False,
     # TODO: can turn off this flag if needed
-    "use_segmentation": False,
+    "use_segmentation": True,
     "merge_batches": 1,
     "save_dir": os.path.expanduser("./depth_anything_finetune"),
     "project": "ZoeDepth",
-    "tags": '',
+    "tags": 'seg-train_seg-bin-eval',
     "notes": "",
     "gpu": None,
     "root": ".",

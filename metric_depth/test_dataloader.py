@@ -77,7 +77,7 @@ def test_data_loading(config, dataset_class, sample_ratio=None, mode="train"):
     print(f"\nTesting {dataset_class.__name__} in '{mode}' mode")
 
     # Initialize the dataset loader
-    if sample_ratio:
+    if config.dataset == "mix":
         data_loader = dataset_class(config, mode, sample_ratio).data
     else:
         data_loader = DepthDataLoader(config, mode, device=device).data
@@ -85,7 +85,7 @@ def test_data_loading(config, dataset_class, sample_ratio=None, mode="train"):
 
     num_batches_to_test = 200
     # Iterate through batches to test data loading
-    exit(0)
+    # exit(0)
     for i, batch in enumerate(data_loader):
         print(f"Batch {i + 1}")
         
@@ -127,7 +127,7 @@ if __name__ == '__main__':
     args, unknown_args = parser.parse_known_args()
 
     # Load configuration
-    mode = "train"
+    mode = "eval"
     config = get_config(args.model, mode, args.dataset)
     print(f"Config in test_dataloader.py: {hex(id(config))}")
     config.batch_size = args.batch_size
@@ -135,5 +135,5 @@ if __name__ == '__main__':
     config.mode = mode
 
     # Test MixedARTKITTINYU
-    test_data_loading(config, MixedARTKITTINYU, {'art': 1, 'kitti': 2}, mode=mode)
-    # test_data_loading(config, DepthDataLoader, mode=mode)
+    # test_data_loading(config, MixedARTKITTINYU, {'art': 1, 'kitti': 2}, mode=mode)
+    test_data_loading(config, DepthDataLoader, mode=mode)

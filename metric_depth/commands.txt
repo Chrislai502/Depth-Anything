@@ -1,5 +1,7 @@
 python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4
 python test_dataloader.py --model zoedepth --batch_size 8 --num_workers 4 --dataset art
+python test_dataloader.py --model depthanything --batch_size 8 --num_workers 4 --dataset art_test
+
 python evaluate.py -m zoedepth --pretrained_resource="local::./checkpoints/depth_anything_metric_depth_outdoor.pt" -d art
 python3 evaluate.py -m zoedepth --pretrained_resource="local::./depth_anything_finetune/ZoeDepthv1_19-Nov_21-22-2626a9246a8f_latest.pt" -d art_test
 python3 evaluate.py -m depthanything --pretrained_resource="local::./depth_anything_finetune/DepthAnythingv1_27-Nov_21-04-28fd8f7d97fe_best.pt" -d art_test
@@ -27,6 +29,16 @@ python3 prep_dense_dataset.py --pretrained_resource="local::./depth_anything_fin
 python demo/image_demo.py demo/demo.png configs/pspnet/pspnet_r50-d8_4xb2-40k_cityscapes-512x1024.py pspnet_r50-d8_512x1024_40k_cityscapes_20200605_003338-2966598c.pth --device cuda:0 --out-file result.jpg
 python demo/image_demo_folder.py /home/art/Depth-Anything/semseg/data/to_ashwin /home/art/Depth-Anything/semseg/data/psp_output configs/pspnet/pspnet_r50-d8_4xb2-40k_cityscapes-512x1024.py pspnet_r50-d8_512x1024_40k_cityscapes_20200605_003338-2966598c.pth --device cuda:0 --width 1042 --height 512
 python demo/image_demo_folder.py --input_folder /home/art/Depth-Anything/semseg/data/to_ashwin --output_folder /home/art/Depth-Anything/semseg/data/da_output/labels --config configs/depth_anything/depth_anything_large_mask2former_16xb1_80k_cityscapes_896x896_ms.py --checkpoint ./checkpoints/cityscapes_vitl_mIoU_86.4.pth --device cuda:0
+
+Command for testing the segmentation script implementation, only testing on a subset of the data:
+python demo/image_seg_script.py --input_folder ../../metric_depth/data/Kitti/raw_data/2011_09_28/2011_09_28_drive_0001_sync/image_02 --output_folder ../../metric_depth/data/Kitti/seg_stats --filter_string image_02 --config configs/depth_anything/depth_anything_large_mask2former_16xb1_80k_cityscapes_896x896_ms.py --checkpoint ./checkpoints/cityscapes_vitl_mIoU_86.4.pth --device cuda:0
+
+Command for generating segmentation for all the ART data. Ensure the working directory is "semseg/mmsegmentation/" before running this command:
+python demo/image_seg_script.py --input_folder ../../metric_depth/data/ART --output_folder ../../metric_depth/data/ART/seg_stats --exclude_filter_strings groundtruth_depth velodyne_raw --config configs/depth_anything/depth_anything_large_mask2former_16xb1_80k_cityscapes_896x896_ms.py --checkpoint ./checkpoints/cityscapes_vitl_mIoU_86.4.pth --device cuda:0
+python demo/image_seg_script.py --input_folder /home/art/Depth-Anything/semseg/data/to_ashwin --output_folder ./ --exclude_filter_strings groundtruth_depth velodyne_raw --config configs/depth_anything/depth_anything_large_mask2former_16xb1_80k_cityscapes_896x896_ms.py --checkpoint ./checkpoints/cityscapes_vitl_mIoU_86.4.pth --device cuda:0
+
+Command for generating segmentation for all the Kitti data. Ensure the working directory is "semseg/mmsegmentation/" before running this command:
+python demo/image_seg_script.py --input_folder ../../metric_depth/data/Kitti/raw_data --output_folder ../../metric_depth/data/ART/seg_stats --filter_string image_02 --config configs/depth_anything/depth_anything_large_mask2former_16xb1_80k_cityscapes_896x896_ms.py --checkpoint ./checkpoints/cityscapes_vitl_mIoU_86.4.pth --device cuda:0
 
 mim download mmsegmentation --config pspnet_r50-d8_4xb2-40k_cityscapes-512x1024 --dest .
 

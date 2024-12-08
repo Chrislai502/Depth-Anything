@@ -147,7 +147,7 @@ def main_worker(gpu, ngpus_per_node, config, eval_config, dataset):
             train_loader = MixedARTKITTINYU(config, "train").data
         else:
             train_loader = DepthDataLoader(config, "train").data
-        test_loader = DepthDataLoader(eval_config, 'online_eval').data
+        test_loader = DepthDataLoader(eval_config, 'eval').data
         
         # Printing Trainloader and test loader information
         print(f"Trainloader length: {len(train_loader)}")
