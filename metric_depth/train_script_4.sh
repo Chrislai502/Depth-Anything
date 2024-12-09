@@ -6,10 +6,10 @@
 # done
 
 # Initial learning rate
-lr=7.0e-8
+lr=0.00000028 # 7e-8
 
 # Number of sweeps (iterations)
-num_sweeps=60  # Adjust this to control the number of iterations
+num_sweeps=20  # Adjust this to control the number of iterations
 
 for ((i=1; i<=num_sweeps; i++)); do
     echo "Running with lr: $lr"
@@ -28,4 +28,6 @@ for ((i=1; i<=num_sweeps; i++)); do
     
     # Double the learning rate for the next iteration
     lr=$(echo "$lr * 2" | bc -l)
+    echo "Learning rate: $lr"
+
 done

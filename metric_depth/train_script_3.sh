@@ -20,7 +20,7 @@
 #     python3 train_mix_infer.py -d kitti --kitti_scale_factor "$scale" --epoch 5
 # done
 
-for w_seg in $(seq 0.0 0.1 1.0); do
+for w_seg in $(seq 0.4 0.2 2.0); do
     echo "Running with w_seg: $w_seg"
-    python3 train_mix_infer.py -d kitti --epochs 9 --w_mae 1.0 --w_si 0.0 --w_seg_si 0.0 --w_seg "$w_seg" --lr 1.6100e-7 --tags "kitti_baseline,w_seg_sweep"
+    python3 train_mix_infer.py -d kitti --epochs 10 --w_mae 1.0 --w_si 0.0 --w_seg_si 0.0 --w_seg "$w_seg" --lr 1.6100e-7 --tags "kitti_baseline,w_seg_sweep"
 done

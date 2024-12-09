@@ -690,6 +690,43 @@ def parallelize(config, model, find_unused_parameters=True):
 
 #################################################################################################
 
+def create_histogram_image(hist_data: dict, xlabel: str = 'X', ylabel: str = 'Y', title: str = '', style: str = 'ggplot', add_labels: bool = True):
+    """
+    Creates a bar plot from histogram data and returns it as a wandb.Image.
+    Parameters:
+    - hist_data (dict): A dictionary where keys are bin centers (or edges) and values are counts.
+    - xlabel (str): Label for the x-axis.
+    - ylabel (str): Label for the y-axis.
+    - title (str): Title for the plot.
+    - style (str): Matplotlib style to use for the plot.
+    - add_labels (bool): Whether to annotate the bars with their values.
+
+    Returns:
+    - wandb.Image: The generated plot as a wandb.Image object.
+    """
+    plt.style.use(style)
+    
+    x = [k for k in hist_data.keys()]
+    y = list(hist_data.values())
+    plt.bar(x, y, width=8, align='edge')
+    
+    if add_labels:
+        for i in range(len(x)):
+            plt.text(x[i] + 4, y[i] / 2, f'{y[i]:.3f}', ha='center', va='center', fontsize=8, color='black')
+    
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    if title:
+        plt.title(title)
+        
+    # Save the plot into an in-memory buffer
+    buf= io.BytesIO()
+    plt.savefig(buf, format="jpg", bbox_inches="tight")
+    buf.seek(0) # Reset the buffer pointer to the beginning
+    plt.close() # Clean up the plt state
+    pil_image = Image.open(buf)
+    return pil_image
+
 
 #####################################################################################################
 
