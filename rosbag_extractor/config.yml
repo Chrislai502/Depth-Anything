@@ -1,0 +1,31 @@
+dataset: 'val_front_set'
+# rosbag: '/media/roar/ART Edward Lee/rosbags/ims_2024/09_04_run2/rosbag2_2024_09_04-13_17_48'
+rosbag: /media/chris/8d2fac78-a15f-43b1-8d0d-8655d972668b/rosbags/ks_2024/day15/perception_complete_multicar_2024_08_21-16_08_19/
+out_folder: '.'  # Saves in current working directory (./val_set/)
+transform:
+  R: [[0.027525738742841938, -1.033688753011144,  0.006610247865331641], 
+      [0.012630571608039612, -0.007514428926169111, -1.0089528002128245], 
+      [1.0215483720108904, 0.029685765235633724, -0.2516030025977667]]
+  T: [0.03944128717478616, 0.30934130289153616, 0.7784016931657523]
+camera_frame: 'vimba_front'
+lidar_frame: 'luminar_front'
+# camera_frame: 'vimba_rear'
+# lidar_frame: 'luminar_rear'
+time_tol: 0.025  # 25ms tolerance for timestamp matching 
+num_points: null  # Process all points
+exit_time_tolerance: 0.5  # Early exit once all timestamps have matches within ±0.5 seconds
+
+# target_timestamps: # rear sets, distance in Euclidean
+#   1724271807759586653: 9.36
+#   1724271731900463711: 15.85
+#   1724271806083768541: 26.52
+#   1724271729910443832: 27.76
+#   1724271727293949566: 36.83
+
+target_timestamps: # front sets, distance in Z only
+  1724271810591622487: 12.63
+  1724271809591622487: 3.42
+  1724271811032490363: 16.73
+  1724271811739109088: 23.52
+  1724271812881093927: 32.13
+  1724271814004604499: 42.79

@@ -1,0 +1,26 @@
+# dataset: '/home/chris/testing/LRRU/testing_scripts/dataset_creation/val_extraction/val_rear/'  # Input images
+dataset: '/home/chris/testing/LRRU/testing_scripts/dataset_creation/val_extraction/val_front_set/'
+outdir: 'depth_outputs'  # Where to save depth predictions
+model_path: 'DepthAnythingv1_11-Dec_12-04-50740ac911a2_latest.pt'  # Hugging Face model path
+encoder: 'vits'  # Model type: ['vits', 'vitb', 'vitl']
+device: 'cuda'  # Use 'cuda' if available, otherwise 'cpu'
+visualize: True  # Show plots in Matplotlib
+model_config: './model_config.json'
+
+crop_remain: 154
+art_width: 1008
+
+# Target depths for each image (Unix timestamp filename → depth in meters)
+target_depths:
+  # 1724271807759586653: 9.36 # rear
+  # 1724271731900463711: 15.85
+  # 1724271806083768541: 26.52
+  # 1724271729910443832: 27.76
+  # 1724271727293949566: 36.83
+
+  1724271810591622487: 12.63 # front
+  1724271809591622487: 3.42
+  1724271811032490363: 16.73
+  1724271811739109088: 23.52
+  1724271812881093927: 32.13
+  1724271814004604499: 42.79
