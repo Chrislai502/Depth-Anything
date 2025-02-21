@@ -128,15 +128,15 @@ def main_worker(gpu, ngpus_per_node, config, eval_config, dataset):
         if config.encoder == 'vits': # 24.79 M Params
             dino = DPT_DINOv2(encoder='vits', features=64, out_channels=[48, 96, 192, 384], localhub='localhub', prefix=prefix)
         elif config.encoder == 'vitb': # 97M Params
-            model = DPT_DINOv2(encoder='vitb', features=128, out_channels=[96, 192, 384, 768], localhub='localhub', prefix=prefix)
+            dino = DPT_DINOv2(encoder='vitb', features=128, out_channels=[96, 192, 384, 768], localhub='localhub', prefix=prefix)
         else: # 330M + Params
-            model = DPT_DINOv2(encoder='vitl', features=256, out_channels=[256, 512, 1024, 1024], localhub='localhub', prefix=prefix)
+            dino = DPT_DINOv2(encoder='vitl', features=256, out_channels=[256, 512, 1024, 1024], localhub='localhub', prefix=prefix)
 
         # Load model weights from checkpoint if specified in config
-        model = load_ckpt(config, model)
+        dino = load_ckpt(config, dino)
         
         # Distribute the model across GPUs if needed
-        model = parallelize(config, model)
+        dino = parallelize(config, dino)
         model = v7_DPT(dino=dino)
 
         # Count and log the total number of parameters in the model
