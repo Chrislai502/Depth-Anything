@@ -47,7 +47,7 @@ class Trainer(BaseTrainer):
         super().__init__(config, model, train_loader,
                          test_loader=test_loader, device=device)
         self.device = device
-        self.silog_loss = SILogLoss()
+        self.silog_loss = SILogLoss(beta = config.get("beta", 0.85))
         self.grad_loss = GradL1Loss()
         self.l1_loss = L1Loss()
         self.scaler = amp.GradScaler('cuda', enabled=self.config.use_amp)
@@ -122,18 +122,18 @@ class Trainer(BaseTrainer):
                 else:           
                     l_si, pred = self.silog_loss(
                         pred_depths, depths_gt, mask=mask, interpolate=True, return_interpolated=True)
+            
+                loss = self.config.w_si * l_si
+                losses[self.silog_loss.name] = l_si
                 
                 if self.use_segmentation and valid_seg:
                     seg_l_si, _ = self.silog_loss(
                         pred_depths, depths_gt, mask=seg_mask, interpolate=True, return_interpolated=True)
+                    
+                    if not torch.isnan(seg_l_si):
+                        loss += self.config.w_seg * seg_l_si
+                        losses["seg_" + self.silog_loss.name] = seg_l_si
                 
-                loss = self.config.w_si * l_si
-            
-                if self.use_segmentation and valid_seg:
-                    loss += self.config.w_seg * seg_l_si
-                    losses["seg_" + self.silog_loss.name] = seg_l_si
-                
-                losses[self.silog_loss.name] = l_si
 
             # MAE loss if applicable
             if self.config.w_mae > 0:
@@ -148,8 +148,10 @@ class Trainer(BaseTrainer):
                     
                 if self.use_segmentation and valid_seg:
                     seg_l_l1, _ = self.l1_loss(pred_depths, depths_gt, mask=seg_mask, interpolate=True, return_interpolated=True)
-                    loss += self.config.w_seg * seg_l_l1
-                    losses["seg_" + self.l1_loss.name]   = seg_l_l1
+                    
+                    if not torch.isnan(seg_l_l1):
+                        loss += self.config.w_seg * seg_l_l1
+                        losses["seg_" + self.l1_loss.name]   = seg_l_l1
                 
                 
             # if self.config.w_grad > 0:

@@ -335,7 +335,7 @@ def compute_errors(gt, pred):
             'silog': Scale invariant log error
     """
     # If gt and pred is empty, return empty dict with all the keys and math.nan
-    if gt.size == 0 or pred.size == 0:
+    if gt.size <= 10 or pred.size <= 10:
         return {
             "a1": np.nan,
             "a2": np.nan,
